@@ -1,0 +1,31 @@
+# Environment variables (contains sensitive credentials)
+.env
+
+# Python cache
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+
+# Virtual environments
+venv/
+env/
+ENV/
+.venv
+
+# Output files
+jira_table.csv
+jira_status_report.csv
+jira_status_report.html
+*.json
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db

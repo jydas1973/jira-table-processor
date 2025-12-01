@@ -1,0 +1,10 @@
+pandas>=2.0.0
+Pillow>=10.0.0
+opencv-python>=4.8.0
+pytesseract
+openpyxl>=3.1.0
+tabulate
+
+# Dependencies for jira_table_analyze.py (API-based JIRA integration)
+jira>=3.5.0
+python-dotenv>=1.0.0
