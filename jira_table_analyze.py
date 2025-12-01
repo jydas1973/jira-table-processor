@@ -148,13 +148,14 @@ class JiraTableAnalyzer:
             df: DataFrame with JIRA issues
 
         Returns:
-            DataFrame with JIRA ID, Status, and Link
+            DataFrame with JIRA ID, Status, Date, and Link
         """
         report_data = []
 
         for index, row in df.iterrows():
             key = row['Key']
             labels = str(row['Labels']).lower() if pd.notna(row['Labels']) else ''
+            created_date = row['Created'] if pd.notna(row['Created']) else ''
 
             # Generate JIRA link
             link = f"{self.jira_url}/browse/{key}"
@@ -171,6 +172,7 @@ class JiraTableAnalyzer:
                 report_data.append({
                     "JIRA ID": key,
                     "Status": status,
+                    "Date": created_date,
                     "Link": link
                 })
 
@@ -220,72 +222,181 @@ class JiraTableAnalyzer:
         else:
             # Calculate statistics
             total = len(status_df)
-            success = len(status_df[status_df['Status'] == 'Success'])
-            failed = len(status_df[status_df['Status'] == 'Failed'])
+            success_df = status_df[status_df['Status'] == 'Success']
+            failed_df = status_df[status_df['Status'] == 'Failed']
+            success = len(success_df)
+            failed = len(failed_df)
+
+            # Generate success list HTML (comma-separated)
+            success_list_html = ""
+            if success > 0:
+                success_links = []
+                for _, row in success_df.iterrows():
+                    success_links.append(f'<a href="{row["Link"]}" target="_blank" style="color: #0052CC; text-decoration: none; font-weight: 500;">{row["JIRA ID"]}</a>')
+                success_list_html = f"<p style='margin: 10px 0; line-height: 1.6;'>{', '.join(success_links)}</p>"
+            else:
+                success_list_html = "<p style='margin: 10px 0; color: #666;'>None</p>"
+
+            # Generate failed list HTML (comma-separated)
+            failed_list_html = ""
+            if failed > 0:
+                failed_links = []
+                for _, row in failed_df.iterrows():
+                    failed_links.append(f'<a href="{row["Link"]}" target="_blank" style="color: #0052CC; text-decoration: none; font-weight: 500;">{row["JIRA ID"]}</a>')
+                failed_list_html = f"<p style='margin: 10px 0; line-height: 1.6;'>{', '.join(failed_links)}</p>"
+            else:
+                failed_list_html = "<p style='margin: 10px 0; color: #666;'>None</p>"
 
             # Generate table rows
             rows_html = ""
             for _, row in status_df.iterrows():
-                color = "#d4edda" if row['Status'] == 'Success' else "#f8d7da"
-                text_color = "#155724" if row['Status'] == 'Success' else "#721c24"
+                status_class = "status-success" if row['Status'] == 'Success' else "status-failed"
+                status_text = "SUCCESS" if row['Status'] == 'Success' else "FAILED"
                 rows_html += f"""
-                <tr style="background-color: {color}; color: {text_color};">
-                    <td style="padding: 10px; border: 1px solid #ddd;">
-                        <a href="{row['Link']}" target="_blank" style="color: {text_color}; font-weight: bold;">
+                <tr>
+                    <td>
+                        <a href="{row['Link']}" target="_blank" class="jira-link">
                             {row['JIRA ID']}
                         </a>
                     </td>
-                    <td style="padding: 10px; border: 1px solid #ddd; font-weight: bold;">
-                        {row['Status']}
+                    <td>
+                        <span class="status-badge {status_class}">
+                            {status_text}
+                        </span>
+                    </td>
+                    <td>
+                        {row['Date']}
                     </td>
                 </tr>
                 """
 
             html_content = f"""
+            <!DOCTYPE html>
             <html>
             <head>
                 <title>JIRA Status Report</title>
+                <meta charset="UTF-8">
                 <style>
+                    * {{
+                        margin: 0;
+                        padding: 0;
+                        box-sizing: border-box;
+                    }}
                     body {{
-                        font-family: Arial, sans-serif;
-                        margin: 20px;
-                        background-color: #f5f5f5;
+                        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen', 'Ubuntu', 'Fira Sans', 'Droid Sans', 'Helvetica Neue', sans-serif;
+                        margin: 0;
+                        padding: 20px;
+                        background-color: #f4f5f7;
+                        color: #172b4d;
+                        font-size: 14px;
+                        line-height: 1.5;
                     }}
                     h1 {{
-                        color: #333;
+                        color: #172b4d;
                         text-align: center;
-                    }}
-                    table {{
-                        border-collapse: collapse;
-                        width: 80%;
-                        margin: 20px auto;
-                        background-color: white;
-                        box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-                    }}
-                    th {{
-                        background-color: #0052CC;
-                        color: white;
-                        padding: 12px;
-                        text-align: left;
-                        font-weight: bold;
+                        margin-bottom: 30px;
+                        font-size: 24px;
+                        font-weight: 500;
                     }}
                     .summary {{
-                        margin: 20px auto;
-                        width: 80%;
+                        margin: 0 auto 30px;
+                        max-width: 900px;
                         background-color: white;
-                        padding: 15px;
-                        box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-                        border-radius: 5px;
+                        padding: 20px 24px;
+                        border-radius: 3px;
+                        box-shadow: 0 1px 2px rgba(0,0,0,0.1);
+                        border: 1px solid #dfe1e6;
+                    }}
+                    .summary h3 {{
+                        color: #172b4d;
+                        font-size: 16px;
+                        font-weight: 600;
+                        margin-bottom: 16px;
+                        padding-bottom: 8px;
+                        border-bottom: 1px solid #dfe1e6;
                     }}
                     .summary p {{
                         margin: 8px 0;
                         font-size: 14px;
+                        color: #42526e;
                     }}
-                    a {{
+                    .summary strong {{
+                        color: #172b4d;
+                        font-weight: 600;
+                    }}
+                    .summary h4 {{
+                        margin: 20px 0 8px 0;
+                        color: #172b4d;
+                        font-size: 14px;
+                        font-weight: 600;
+                    }}
+                    .summary a {{
+                        color: #0052CC;
                         text-decoration: none;
+                        font-weight: 500;
                     }}
-                    a:hover {{
+                    .summary a:hover {{
+                        color: #0065FF;
                         text-decoration: underline;
+                    }}
+                    table {{
+                        border-collapse: collapse;
+                        width: 100%;
+                        max-width: 900px;
+                        margin: 0 auto;
+                        background-color: white;
+                        border-radius: 3px;
+                        overflow: hidden;
+                        box-shadow: 0 1px 2px rgba(0,0,0,0.1);
+                        border: 1px solid #dfe1e6;
+                    }}
+                    th {{
+                        background-color: #f4f5f7;
+                        color: #172b4d;
+                        padding: 12px 16px;
+                        text-align: left;
+                        font-weight: 600;
+                        font-size: 12px;
+                        text-transform: uppercase;
+                        letter-spacing: 0.5px;
+                        border-bottom: 2px solid #dfe1e6;
+                    }}
+                    td {{
+                        padding: 12px 16px;
+                        border-bottom: 1px solid #f4f5f7;
+                    }}
+                    tr:hover {{
+                        background-color: #f4f5f7;
+                    }}
+                    tr:last-child td {{
+                        border-bottom: none;
+                    }}
+                    .jira-link {{
+                        color: #0052CC;
+                        text-decoration: none;
+                        font-weight: 500;
+                        font-size: 14px;
+                    }}
+                    .jira-link:hover {{
+                        color: #0065FF;
+                        text-decoration: underline;
+                    }}
+                    .status-badge {{
+                        display: inline-block;
+                        padding: 2px 8px;
+                        border-radius: 3px;
+                        font-size: 11px;
+                        font-weight: 700;
+                        text-transform: uppercase;
+                        letter-spacing: 0.3px;
+                    }}
+                    .status-success {{
+                        background-color: #e3fcef;
+                        color: #006644;
+                    }}
+                    .status-failed {{
+                        background-color: #ffebe6;
+                        color: #bf2600;
                     }}
                 </style>
             </head>
@@ -297,6 +408,12 @@ class JiraTableAnalyzer:
                     <p><strong>Total Issues:</strong> {total}</p>
                     <p><strong>Success:</strong> {success}</p>
                     <p><strong>Failed:</strong> {failed}</p>
+
+                    <h4>Successful JIRA Tickets:</h4>
+                    {success_list_html}
+
+                    <h4>Failed JIRA Tickets:</h4>
+                    {failed_list_html}
                 </div>
 
                 <table>
@@ -304,6 +421,7 @@ class JiraTableAnalyzer:
                         <tr>
                             <th>JIRA ID</th>
                             <th>Status</th>
+                            <th>Date Created</th>
                         </tr>
                     </thead>
                     <tbody>
@@ -410,7 +528,7 @@ def main():
     JQL_QUERY = """
     text ~ metricsV2.EXADATA.dbaas.patchCloudExaInfra.APPLY.WORKER.Failure
     AND labels in (oneview_triagex_started,oneview_triagex_success,oneview_triagex_failed)
-    AND created >= -2d
+    AND created >= -3d
     ORDER BY created DESC
     """
 
