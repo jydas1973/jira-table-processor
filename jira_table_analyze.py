@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
 JIRA Table Analyzer
 This program queries JIRA directly using JQL filter and processes the data to create status reports.
