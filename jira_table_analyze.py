@@ -518,18 +518,20 @@ def main():
         print()
         print("JIRA_URL=https://jira-sd.mc1.oracleiaas.com")
         print("JIRA_API_TOKEN=your_api_token_here")
+        print("JQL_QUERY=your_jql_query_here  # Optional, defaults to ExaInfra patching failures")
+        print("MAX_RESULTS=100  # Optional, defaults to 100")
         print()
         print("See README.md for detailed setup instructions.")
         print("="*80)
         return
 
-    # JQL Query - Last 1 day of ExaInfra patching failures
-    JQL_QUERY = """
+    # JQL Query from environment variable
+    JQL_QUERY = os.getenv('JQL_QUERY', """
     text ~ metricsV2.EXADATA.dbaas.patchCloudExaInfra.APPLY.WORKER.Failure
     AND labels in (oneview_triagex_started,oneview_triagex_success,oneview_triagex_failed)
     AND created >= -3d
     ORDER BY created DESC
-    """
+    """).strip()
 
     # Maximum number of results to fetch
     MAX_RESULTS = int(os.getenv('MAX_RESULTS', 100))
