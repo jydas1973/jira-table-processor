@@ -13,6 +13,12 @@ import re
 from jira import JIRA
 from dotenv import load_dotenv
 import shutil
+from datetime import datetime, timedelta
+import smtplib
+from email.mime.multipart import MIMEMultipart
+from email.mime.text import MIMEText
+from email.mime.base import MIMEBase
+from email import encoders
 
 # Set UTF-8 encoding for Windows console
 if sys.platform == 'win32':
@@ -249,8 +255,14 @@ class JiraTableAnalyzer:
             # Generate table rows
             rows_html = ""
             for _, row in status_df.iterrows():
-                status_class = "status-success" if row['Status'] == 'Success' else "status-failed"
-                status_text = "SUCCESS" if row['Status'] == 'Success' else "FAILED"
+                if row['Status'] == 'Success':
+                    status_class = "status-success"
+                    status_text = "SUCCESS"
+                    status_inline = "display: inline-block; padding: 2px 8px; border-radius: 3px; font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.3px; background-color: #e3fcef; color: #006644;"
+                else:
+                    status_class = "status-failed"
+                    status_text = "FAILED"
+                    status_inline = "display: inline-block; padding: 2px 8px; border-radius: 3px; font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.3px; background-color: #ffebe6; color: #bf2600;"
                 rows_html += f"""
                 <tr>
                     <td>
@@ -259,7 +271,7 @@ class JiraTableAnalyzer:
                         </a>
                     </td>
                     <td>
-                        <span class="status-badge {status_class}">
+                        <span class="status-badge {status_class}" style="{status_inline}">
                             {status_text}
                         </span>
                     </td>
@@ -436,13 +448,71 @@ class JiraTableAnalyzer:
         print(f"✓ Saved HTML report to {output_path}")
         return output_path
 
-    def run(self, jql_query: str, max_results: int = 100):
+    def send_email_report(self, html_report_path: str, smtp_server: str, email_from: str, email_to: str, email_subject: str) -> None:
+        """
+        Send the HTML report as an email with the HTML content as body and the file as attachment.
+
+        Args:
+            html_report_path: Path to the HTML report file
+            smtp_server: SMTP server hostname
+            email_from: Sender email address
+            email_to: Comma-separated recipient email addresses
+            email_subject: Email subject line
+        """
+        try:
+            # Read HTML content for the email body
+            with open(html_report_path, 'r', encoding='utf-8') as f:
+                html_content = f.read()
+
+            # Parse recipient list
+            recipients = [addr.strip() for addr in email_to.split(',') if addr.strip()]
+
+            if not recipients:
+                print("✗ No valid recipients found. Skipping email.")
+                return
+
+            # Build the email
+            msg = MIMEMultipart()
+            msg['From'] = email_from
+            msg['To'] = email_to
+            msg['Subject'] = email_subject
+
+            # Attach HTML body
+            msg.attach(MIMEText(html_content, 'html', 'utf-8'))
+
+            # Attach the HTML report file
+            with open(html_report_path, 'rb') as f:
+                attachment = MIMEBase('text', 'html')
+                attachment.set_payload(f.read())
+                encoders.encode_base64(attachment)
+                attachment.add_header(
+                    'Content-Disposition',
+                    f'attachment; filename="{os.path.basename(html_report_path)}"'
+                )
+                msg.attach(attachment)
+
+            # Send the email via plain SMTP on port 25
+            print(f"\nSending email via {smtp_server}:25...")
+            print(f"  From: {email_from}")
+            print(f"  To: {email_to}")
+            print(f"  Subject: {email_subject}")
+
+            with smtplib.SMTP(smtp_server, 25) as server:
+                server.sendmail(email_from, recipients, msg.as_string())
+
+            print("✓ Email sent successfully")
+
+        except Exception as e:
+            print(f"✗ Failed to send email: {e}")
+
+    def run(self, jql_query: str, max_results: int = 100, email_config: Optional[Dict[str, str]] = None):
         """
         Execute the complete workflow.
 
         Args:
             jql_query: JQL filter string
             max_results: Maximum number of results to fetch
+            email_config: Optional dict with keys 'smtp_server', 'from', 'to', 'subject' for sending email
         """
         print("\n" + "="*80)
         print("JIRA TABLE ANALYZER - Starting Analysis")
@@ -488,6 +558,19 @@ class JiraTableAnalyzer:
         # 7. Print final status report
         print("\n[Step 7] Displaying final status report...")
         self.print_status_report(self.status_df)
+
+        # 8. Send email report if configured
+        if email_config:
+            print("\n[Step 8] Sending email report...")
+            self.send_email_report(
+                html_report_path='reports/jira_status_report.html',
+                smtp_server=email_config['smtp_server'],
+                email_from=email_config['from'],
+                email_to=email_config['to'],
+                email_subject=email_config['subject']
+            )
+        else:
+            print("\n[Step 8] Email not configured. Skipping email delivery.")
 
         print("\n" + "="*80)
         print("✓ Analysis Complete!")
@@ -536,12 +619,36 @@ def main():
     # Maximum number of results to fetch
     MAX_RESULTS = int(os.getenv('MAX_RESULTS', 100))
 
+    # Email configuration (optional)
+    email_config = None
+    EMAIL_SMTP_SERVER = os.getenv('EMAIL_SMTP_SERVER')
+    EMAIL_FROM = os.getenv('EMAIL_FROM')
+    EMAIL_TO = os.getenv('EMAIL_TO')
+    EMAIL_SUBJECT = os.getenv('EMAIL_SUBJECT', 'JIRA Status Report')
+
+    # Append date range to email subject if JQL contains a relative created filter (e.g., created >= -3d)
+    created_match = re.search(r'created\s*>=\s*-(\d+)d', JQL_QUERY)
+    if created_match:
+        days_back = int(created_match.group(1))
+        today = datetime.now()
+        from_date = today - timedelta(days=days_back)
+        EMAIL_SUBJECT = f"{EMAIL_SUBJECT} from {from_date.strftime('%b %d, %Y')} to {today.strftime('%b %d, %Y')}"
+
+    if EMAIL_SMTP_SERVER and EMAIL_FROM and EMAIL_TO:
+        email_config = {
+            'smtp_server': EMAIL_SMTP_SERVER,
+            'from': EMAIL_FROM,
+            'to': EMAIL_TO,
+            'subject': EMAIL_SUBJECT
+        }
+
     print("="*80)
     print("JIRA TABLE ANALYZER")
     print("="*80)
     print(f"JIRA Instance: {JIRA_URL}")
     print(f"Query Filter: {JQL_QUERY.strip()}")
     print(f"Max Results: {MAX_RESULTS}")
+    print(f"Email: {'Configured' if email_config else 'Not configured'}")
     print("="*80)
 
     try:
@@ -549,7 +656,7 @@ def main():
         analyzer = JiraTableAnalyzer(JIRA_URL, JIRA_API_TOKEN)
 
         # Run the analysis
-        analyzer.run(JQL_QUERY, MAX_RESULTS)
+        analyzer.run(JQL_QUERY, MAX_RESULTS, email_config)
 
     except KeyboardInterrupt:
         print("\n\n✗ Operation cancelled by user.")
