@@ -193,9 +193,14 @@ class JiraTableAnalyzer:
             print(status_df.to_string(index=False))
             print("=" * 100)
             print("\nSummary:")
-            print(f"  Total Issues: {len(status_df)}")
-            print(f"  Success: {len(status_df[status_df['Status'] == 'Success'])}")
-            print(f"  Failed: {len(status_df[status_df['Status'] == 'Failed'])}")
+            total = len(status_df)
+            success = len(status_df[status_df['Status'] == 'Success'])
+            failed = len(status_df[status_df['Status'] == 'Failed'])
+            success_pct = (success / total * 100) if total > 0 else 0
+            failed_pct = (failed / total * 100) if total > 0 else 0
+            print(f"  Total Issues: {total}")
+            print(f"  Success: {success} ({success_pct:.1f}%)")
+            print(f"  Failed: {failed} ({failed_pct:.1f}%)")
         else:
             print("No matching issues found with success/failed labels.")
         print("=" * 100 + "\n")
@@ -206,7 +211,7 @@ class JiraTableAnalyzer:
         print(f"✓ Saved status report to {output_path}")
         return output_path
 
-    def create_html_report(self, status_df: pd.DataFrame, output_path: str) -> str:
+    def create_html_report(self, status_df: pd.DataFrame, output_path: str, jql_query: str = None) -> str:
         """Create an HTML report with clickable hyperlinks and styling."""
         if status_df.empty:
             html_content = """
@@ -231,6 +236,10 @@ class JiraTableAnalyzer:
             failed_df = status_df[status_df['Status'] == 'Failed']
             success = len(success_df)
             failed = len(failed_df)
+
+            # Calculate percentages
+            success_pct = (success / total * 100) if total > 0 else 0
+            failed_pct = (failed / total * 100) if total > 0 else 0
 
             # Generate success list HTML (comma-separated)
             success_list_html = ""
@@ -281,6 +290,16 @@ class JiraTableAnalyzer:
                 </tr>
                 """
 
+            # Generate JQL query section if provided
+            jql_section_html = ""
+            if jql_query:
+                jql_section_html = f"""
+                <div class="jql-query">
+                    <h3>JQL Query</h3>
+                    <pre>{jql_query}</pre>
+                </div>
+                """
+
             html_content = f"""
             <!DOCTYPE html>
             <html>
@@ -308,6 +327,33 @@ class JiraTableAnalyzer:
                         margin-bottom: 30px;
                         font-size: 24px;
                         font-weight: 500;
+                    }}
+                    .jql-query {{
+                        margin: 0 auto 20px;
+                        max-width: 900px;
+                        background-color: white;
+                        padding: 16px 20px;
+                        border-radius: 3px;
+                        box-shadow: 0 1px 2px rgba(0,0,0,0.1);
+                        border: 1px solid #dfe1e6;
+                        border-left: 3px solid #0052CC;
+                    }}
+                    .jql-query h3 {{
+                        color: #172b4d;
+                        font-size: 14px;
+                        font-weight: 600;
+                        margin-bottom: 8px;
+                    }}
+                    .jql-query pre {{
+                        background-color: #f4f5f7;
+                        padding: 12px;
+                        border-radius: 3px;
+                        font-family: 'Courier New', Courier, monospace;
+                        font-size: 12px;
+                        color: #172b4d;
+                        overflow-x: auto;
+                        white-space: pre-wrap;
+                        word-wrap: break-word;
                     }}
                     .summary {{
                         margin: 0 auto 30px;
@@ -414,11 +460,13 @@ class JiraTableAnalyzer:
             <body>
                 <h1>JIRA Status Report</h1>
 
+                {jql_section_html}
+
                 <div class="summary">
                     <h3>Summary</h3>
                     <p><strong>Total Issues:</strong> {total}</p>
-                    <p><strong>Success:</strong> {success}</p>
-                    <p><strong>Failed:</strong> {failed}</p>
+                    <p><strong>Success:</strong> {success} ({success_pct:.1f}%)</p>
+                    <p><strong>Failed:</strong> {failed} ({failed_pct:.1f}%)</p>
 
                     <h4>Successful JIRA Tickets:</h4>
                     {success_list_html}
@@ -553,7 +601,7 @@ class JiraTableAnalyzer:
 
         # 6. Create HTML report with hyperlinks
         print("\n[Step 6] Creating HTML report with hyperlinks...")
-        self.create_html_report(self.status_df, 'reports/jira_status_report.html')
+        self.create_html_report(self.status_df, 'reports/jira_status_report.html', jql_query)
 
         # 7. Print final status report
         print("\n[Step 7] Displaying final status report...")
