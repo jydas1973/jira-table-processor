@@ -29,3 +29,16 @@ jira_status_report.html
 # OS
 .DS_Store
 Thumbs.db
+
+# Claude SDK Harness
+claude_jira_table_processor/node_modules/
+claude_jira_table_processor/bun.lockb
+claude_jira_table_processor/.env
+claude_jira_table_processor/reports/
+
+# Codex SDK Harness
+codex_jira_table_processor/node_modules/
+codex_jira_table_processor/bun.lockb
+codex_jira_table_processor/.env
+codex_jira_table_processor/reports/*.csv
+codex_jira_table_processor/reports/*.html

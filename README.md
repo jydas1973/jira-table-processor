@@ -624,3 +624,244 @@ crontab -e
 ## License & Disclaimer
 
 This tool is provided as-is for internal use. Ensure compliance with your organization's security policies before using with production JIRA instances.
+
+---
+
+## Codex SDK Harness
+
+All TypeScript source files for this harness live in `codex_jira_table_processor/` at the
+project root. This is a self-contained Bun project — it has its own `package.json`,
+`node_modules/`, and `shared/` folder independent of any Claude harness.
+
+The harness uses the OpenAI Codex SDK (`@openai/codex-sdk`) to drive the JIRA analysis workflow
+via a Codex agent. The agent receives the task as a prompt and autonomously activates the Python
+virtual environment and runs `jira_table_analyze.py` using its built-in sandbox shell access —
+no tool list configuration required.
+
+### Prerequisites
+
+- **Bun >= 1.0** — JavaScript/TypeScript runtime (replaces Node.js + npm + tsc)
+  ```bash
+  curl -fsSL https://bun.sh/install | bash
+  ```
+- **OpenAI API Key** — required for the Codex SDK to authenticate
+- **Python venv** — `report_env/` must already be set up with dependencies installed
+
+### Authentication
+
+The Codex SDK (`new Codex()`) reads credentials from one of two sources, in priority order:
+
+**Option 1 — API Key in `.env` (recommended, no CLI login needed):**
+```bash
+# Add to your .env file
+OPENAI_API_KEY=sk-...your-openai-key...
+```
+
+**Option 2 — Stored credentials via CLI login (one-time setup):**
+```bash
+codex auth login
+```
+This runs an OAuth flow and caches a token at `~/.codex/`. Once done, `new Codex()` picks it
+up automatically on every subsequent run without needing the env var.
+
+### Installation
+
+```bash
+cd codex_jira_table_processor
+ln -s ../.env .env   # symlink project-root .env so Bun finds credentials
+bun install
+```
+
+This installs `@openai/codex-sdk` into `codex_jira_table_processor/node_modules/`.
+
+### Configuration
+
+All configuration is read from `.env` — same variables as the Python script:
+
+| Variable | Required | Default | Description |
+|---|---|---|---|
+| `OPENAI_API_KEY` | **Yes** (or `codex auth login`) | — | OpenAI API key for Codex SDK auth |
+| `JIRA_URL` | No | `https://jira-sd.mc1.oracleiaas.com` | JIRA instance URL |
+| `JIRA_API_TOKEN` | **Yes** | — | JIRA personal API token |
+| `JQL_QUERY` | No | ExaInfra patching failures (last 3d) | JQL filter string |
+| `MAX_RESULTS` | No | `100` | Max issues to fetch |
+| `EMAIL_SMTP_SERVER` | No | — | SMTP hostname (port 25, no TLS) |
+| `EMAIL_FROM` | No | — | Sender email address |
+| `EMAIL_TO` | No | — | Comma-separated recipient addresses |
+| `EMAIL_SUBJECT` | No | `JIRA Status Report` | Email subject prefix |
+
+### Usage
+
+All commands must be run from inside `codex_jira_table_processor/`:
+
+```bash
+cd codex_jira_table_processor
+
+# Standard run
+bun run codex-harness/index.ts
+
+# With detailed report (fetches VoxioTriageX report URLs + log file names per ticket)
+bun run codex-harness/index.ts --detailed-report
+
+# Using npm scripts
+bun run analyze
+bun run analyze:detailed
+```
+
+### What Happens End-to-End
+
+```
+1. .env (symlinked from project root) is read by Bun — JIRA_URL, JIRA_API_TOKEN, OPENAI_API_KEY, etc.
+2. index.ts builds AnalyzerConfig with workDir = resolve("..") (= project root)
+3. analyzer.ts creates new Codex() + startThread(workingDirectory: projectRoot)
+4. Sends full prompt to thread.runStreamed()
+5. Terminal streams in real time:
+      [AGENT]   Command: source report_env/bin/activate && python3 jira_table_analyze.py
+      [AGENT]   Command: ...
+      [AGENT]   Tokens: 1200 in / 340 out
+6. Event loop breaks on turn.completed
+7. index.ts prints result summary and exits (0 = success, 1 = failure)
+8. ../reports/ (project root) contains all 3 output files
+```
+
+### Output Files
+
+All files are written to the `reports/` directory (same as the Python script):
+
+```
+reports/
+├── jira_table.csv             # All fetched issues (raw)
+├── jira_status_report.csv     # Filtered: only Success/Failed tickets
+└── jira_status_report.html    # Styled HTML report with clickable JIRA links
+```
+
+### Architecture
+
+```
+codex_jira_table_processor/
+    codex-harness/index.ts
+        │
+        │  reads .env (symlink → ../.env), builds AnalyzerConfig (workDir = ..)
+        ▼
+    codex-harness/analyzer.ts  ──(thread.runStreamed())──▶  Codex Agent (gpt-5.4)
+                                                                  │
+                                                     workingDirectory = project root
+                                                     activates report_env/,
+                                                     runs jira_table_analyze.py
+                                                                  │
+                                                           ../reports/
+```
+
+### Key Difference from Claude SDK Harness
+
+The Claude SDK harness (if also present) uses `query()` from `@anthropic-ai/claude-agent-sdk`
+with an explicit tool list (`Bash`, `Write`, etc.) and a separate `systemPrompt` option.
+
+The Codex SDK works differently:
+- **No `systemPrompt` option** — the system prompt is prepended directly into the user prompt string
+- **No explicit tool list** — all capabilities are granted implicitly via `sandboxMode: "danger-full-access"`
+- **`thread.runStreamed()`** streams events including shell commands the agent executes; the loop
+  **must `break` on `turn.completed`** or the process will hang for 90 seconds
+
+### Troubleshooting
+
+**Process hangs after the agent finishes:**
+The event loop did not break on `turn.completed`. Verify the `break` statement is present in
+`codex-harness/analyzer.ts` inside the `turn.completed` branch.
+
+**`new Codex()` throws an auth error:**
+Either add `OPENAI_API_KEY` to `.env` or run `codex auth login` once.
+
+**`bun: command not found`:**
+Install Bun: `curl -fsSL https://bun.sh/install | bash`, then restart your terminal.
+
+---
+
+## Claude SDK Harness
+
+### Overview
+
+The `claude_jira_table_processor/` folder contains a TypeScript harness that uses the
+[`@anthropic-ai/claude-agent-sdk`](https://www.npmjs.com/package/@anthropic-ai/claude-agent-sdk)
+to orchestrate a Claude agent. The agent receives a structured prompt, then autonomously
+activates the Python virtual environment and runs `jira_table_analyze.py` using its Bash tool.
+This means all JIRA fetching, label analysis, CSV/HTML generation, and optional email delivery
+are driven by Claude — you just run a single command.
+
+### Prerequisites
+
+- **Bun >= 1.0** — install: `curl -fsSL https://bun.sh/install | bash`
+- **Claude CLI authenticated** — `claude auth login`
+- **Python venv with dependencies** — `report_env/` (already set up if you followed the Python setup above)
+
+### Installation
+
+```bash
+cd claude_jira_table_processor
+ln -s ../.env .env   # symlink project-root .env so Bun finds it (already done if you cloned fresh)
+bun install
+```
+
+### Configuration
+
+All configuration is read from `.env` at the project root (same file used by the Python script):
+
+| Variable | Required | Default | Description |
+|---|---|---|---|
+| `JIRA_URL` | No | `https://jira-sd.mc1.oracleiaas.com` | JIRA instance URL |
+| `JIRA_API_TOKEN` | **Yes** | — | Personal API token |
+| `JQL_QUERY` | No | ExaInfra patching failures (last 3d) | JQL filter string |
+| `MAX_RESULTS` | No | `100` | Max issues to fetch |
+| `EMAIL_SMTP_SERVER` | No | — | SMTP hostname (port 25) |
+| `EMAIL_FROM` | No | — | Sender address |
+| `EMAIL_TO` | No | — | Comma-separated recipients |
+| `EMAIL_SUBJECT` | No | `JIRA Status Report` | Email subject prefix |
+
+### Usage
+
+All commands run from inside `claude_jira_table_processor/`:
+
+```bash
+cd claude_jira_table_processor
+
+# Standard run
+bun run claude-harness/index.ts
+
+# With detailed report (fetches VoxioTriageX report URLs + log file names per ticket)
+bun run claude-harness/index.ts --detailed-report
+
+# Using npm scripts
+bun run analyze
+bun run analyze:detailed
+```
+
+### Output Files
+
+The agent writes all output to the project-root `reports/` directory:
+
+```
+reports/
+├── jira_table.csv             # All fetched issues (raw)
+├── jira_status_report.csv     # Filtered: only Success/Failed tickets
+└── jira_status_report.html    # Styled HTML report with clickable JIRA links
+```
+
+### Architecture
+
+```
+index.ts  ──(config)──▶  analyzer.ts  ──(query())──▶  Claude Agent
+                                                            │
+                                                  Bash tool (activates report_env,
+                                                  runs jira_table_analyze.py)
+                                                            │
+                                                       reports/
+```
+
+### How It Works
+
+The harness reads `.env` at startup and constructs an `AnalyzerConfig` object (JIRA URL, JQL,
+email settings, etc.). It passes this config to `runAnalyzer()`, which calls `query()` from the
+Claude Agent SDK with a system prompt that instructs the agent to activate the Python venv and
+run `jira_table_analyze.py`. The agent uses its Bash tool to execute the script, which fetches
+issues from JIRA, processes labels, and writes the three output files to `reports/`. The agent
+then emits a JSON completion summary that the harness parses to determine success or failure.
