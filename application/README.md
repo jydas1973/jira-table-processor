@@ -20,7 +20,6 @@ The TriageX JIRA Dashboard connects to `jira-sd.mc1.oracleiaas.com` via a person
 ## Prerequisites
 
 - Python 3.8 or higher (`python --version`)
-- pip (`pip --version`)
 - Network access to `https://jira-sd.mc1.oracleiaas.com`
 - A personal JIRA API token (instructions below)
 
@@ -44,6 +43,24 @@ These steps are for the Oracle self-hosted JIRA instance at `https://jira-sd.mc1
 
 ## Installation & Setup
 
+Two installation methods are supported: **uv** (recommended — fast, no manual venv management) and **pip** (standard).
+
+---
+
+### Method 1 — uv (Recommended)
+
+[uv](https://docs.astral.sh/uv/) is a fast Python package manager. It reads `pyproject.toml`, pins all dependencies in `uv.lock`, and manages the virtual environment automatically.
+
+**Install uv** (if not already installed):
+
+```bash
+curl -LsSf https://astral.sh/uv/install.sh | sh   # macOS / Linux
+# Or via Homebrew:
+brew install uv
+```
+
+**Set up and run:**
+
 ```bash
 # 1. Enter the application directory
 cd application
@@ -54,7 +71,30 @@ cp .env.template .env
 # 3. Edit .env and add your JIRA API token
 # Open .env in your editor and replace "your_personal_api_token_here"
 
-# 4. (Recommended) Create a virtual environment
+# 4. Install all dependencies (creates .venv automatically from pyproject.toml + uv.lock)
+uv sync
+
+# 5. Start the dashboard
+uv run python backend/app.py
+```
+
+`uv sync` reads the pinned `uv.lock` file and installs an exact, reproducible environment in `.venv/` — no manual venv activation required.
+
+---
+
+### Method 2 — pip (Standard)
+
+```bash
+# 1. Enter the application directory
+cd application
+
+# 2. Copy the environment template
+cp .env.template .env
+
+# 3. Edit .env and add your JIRA API token
+# Open .env in your editor and replace "your_personal_api_token_here"
+
+# 4. Create and activate a virtual environment
 python -m venv venv
 source venv/bin/activate        # macOS/Linux
 # venv\Scripts\activate         # Windows
@@ -70,8 +110,26 @@ python backend/app.py
 
 ## Running the Server
 
+### With uv
+
 ```bash
 # Start server only (open browser manually at http://localhost:5000)
+uv run python backend/app.py
+
+# Start server AND auto-open browser
+uv run python backend/app.py --open
+
+# Use a custom port
+uv run python backend/app.py --port 8080
+
+# Custom port + auto-open
+uv run python backend/app.py --port 8080 --open
+```
+
+### With pip (venv activated)
+
+```bash
+# Start server only
 python backend/app.py
 
 # Start server AND auto-open browser
@@ -157,3 +215,5 @@ python backend/app.py --port 8080 --open
 | `EMAIL_SMTP_SERVER is not configured` | Email vars missing from .env | Add `EMAIL_*` vars to `.env` |
 | Email not delivered | Off VPN or SMTP relay unreachable | Connect to Oracle network or VPN |
 | Send button stays disabled | No recipients checked | Check at least one recipient |
+| `uv: command not found` | uv not installed | Run `curl -LsSf https://astral.sh/uv/install.sh \| sh` |
+| `uv sync` fails | Python version < 3.8 | Upgrade Python or install via `uv python install 3.12` |

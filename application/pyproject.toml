@@ -1,0 +1,11 @@
+[project]
+name = "triagex-jira-dashboard"
+version = "1.0.0"
+description = "Interactive web dashboard for Oracle ExaInfra JIRA triage status"
+requires-python = ">=3.8"
+dependencies = [
+    "flask>=3.0.0",
+    "python-dotenv>=1.0.0",
+    "jira>=3.5.0",
+    "pandas>=2.0.0",
+]
