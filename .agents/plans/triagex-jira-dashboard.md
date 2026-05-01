@@ -24,6 +24,11 @@ JIRA JQL query, and instantly see:
    Log Files; configurable rows-per-page (10 / 25 / 50 / 100, max 100)
 4. **Optional Report Links** — an "Include Report Links" checkbox fetches VoxioTriageX URLs and
    log filenames per ticket (one extra JIRA API call per ticket; unchecked by default)
+5. **Email Report panel** — collapsible panel (between Summary Cards and Chart) that lets the
+   engineer select one or more recipients from a checkbox list populated from `EMAIL_TO` in
+   `.env`, edit the subject line (pre-filled from `EMAIL_SUBJECT` + date range), and send the
+   first 50 JIRA issues formatted as the existing HTML report via `POST /api/send-email`.
+   Uses the internal Oracle SMTP relay (port 25, no TLS, no auth) defined in `EMAIL_SMTP_SERVER`.
 
 The application is a self-contained folder (`application/`) with `backend/` and `frontend/`
 sub-trees, a comprehensive `README.md`, and a `.env.template`. Running is as simple as:
@@ -65,7 +70,7 @@ happen in the browser with vanilla JS and Chart.js (CDN, no build toolchain). Th
 **Estimated Complexity**: Medium
 **Primary Systems Affected**: New `application/` folder only; parent scripts untouched
 **Dependencies**: `flask>=3.0.0`, `jira>=3.5.0`, `pandas>=2.0.0`, `python-dotenv>=1.0.0`,
-  Chart.js 4.x via CDN (no npm)
+  Chart.js 4.x via CDN (no npm); email uses Python stdlib only (`smtplib`, `email`)
 
 ---
 
@@ -89,10 +94,22 @@ happen in the browser with vanilla JS and Chart.js (CDN, no build toolchain). Th
 - `.env` (line 6) — `JIRA_URL=https://jira-sd.mc1.oracleiaas.com` — default JIRA URL.
 - `.env` (line 24) — `JQL_QUERY` current value (read this for the `.env.template` default):
   `project in (DBAASOPS,EXACSOPS,EXACCOPS) AND labels = oneview_triagex_inprogress AND created >= -3d`
+- `.env` (lines 35–46) — Email configuration variables:
+  - `EMAIL_SMTP_SERVER=internal-mail-router.oracle.com` — internal Oracle mail relay, port 25, no TLS, no auth
+  - `EMAIL_FROM=jyotirdipta.das@oracle.com` — fixed sender (single value, not user-selectable)
+  - `EMAIL_TO=<comma-separated list of 11 addresses>` — recipient pool for the dashboard dropdown
+  - `EMAIL_SUBJECT=TriageX JIRA Analysis Report` — default subject (dashboard appends date range)
 - `.agents/plans/jira-claude-sdk-harness.md` — reference for plan file structure conventions.
 - `reports/jira_status_report.html` — reference for exact table column names, status badge
   styles (SUCCESS green `#e3fcef`/`#006644`, FAILED red `#ffebe6`/`#bf2600`), and Log Files
   expand/collapse pattern (`<details>` with "+N more" summary).
+- `jira_table_analyze.py` (lines 595–760) — `_generate_email_html()`: generates the full HTML
+  email body (summary stats + table). **Copy the HTML structure verbatim** into a helper
+  function inside `app.py`. Note: the email variant shows log file *count* (not full filenames)
+  to keep the email body compact — mirror this behaviour.
+- `jira_table_analyze.py` (lines 762–817) — `send_email_report()`: sends email via `smtplib`
+  on port 25. Copy the SMTP send pattern verbatim into `app.py`; adapt to accept a recipient
+  list (array of strings) instead of a single comma-separated string.
 
 ### Files to DELETE before starting (created in error at wrong location)
 
@@ -278,6 +295,60 @@ Show first 2 log files; put remainder in a `<details>` with "+N more" summary.
 </details>
 ```
 
+### Email Panel Behaviour
+
+**Placement**: Between the Summary Cards and the Weekly Chart within `#results`. The panel is
+collapsible (`<details>` element, closed by default). It only makes sense after a successful
+analysis, so it lives inside `#results` (already hidden until first analysis).
+
+**Recipient list** — populated server-side via Jinja2 from `EMAIL_TO`:
+- Each address in `EMAIL_TO` becomes a checkbox row.
+- None are pre-checked (user must consciously choose).
+- "Select All" button checks all; "Clear" button unchecks all.
+- The Send button is disabled (`disabled` attribute) while zero recipients are checked.
+
+**Subject line** — editable `<input type="text">`:
+- Default value: `EMAIL_SUBJECT` env var (passed via Jinja2 as `default_email_subject`).
+- The frontend appends the active date range in parentheses after the user clicks Analyze
+  (e.g., `TriageX JIRA Analysis Report (Apr 23 – Apr 30, 2026)`).
+- The appended date range is updated on every new analysis; the user may still edit it freely.
+
+**Email content** — first 50 rows of `status_df`:
+- Rendered using the same HTML structure as `_generate_email_html()` from `jira_table_analyze.py`.
+- Always includes: summary stats block (Total / Success / Failed counts and %) + table with
+  JIRA ID, Status badge, Date Created, and (if present) Report and Log Files columns.
+- Log Files column shows file count badge (not full filenames), matching the email-body variant
+  in `_generate_email_html()`.
+- If fewer than 50 rows exist, all rows are included.
+
+**Sender**: fixed to `EMAIL_FROM` — shown as a read-only hint below the recipient list
+(`From: jyotirdipta.das@oracle.com · via internal-mail-router.oracle.com`).
+
+**Send flow**:
+1. User clicks "Send Report".
+2. Frontend POSTs to `POST /api/send-email` with JSON:
+   ```json
+   { "recipients": ["a@oracle.com", "b@oracle.com"], "subject": "TriageX..." }
+   ```
+3. Backend re-runs `process_labels_and_create_status_report` on the **last analysis result**
+   (stored in a module-level variable `_last_status_df` set during `/api/analyze`), slices
+   to 50 rows, generates HTML, and sends via SMTP.
+4. Frontend shows an inline success message (`✓ Report sent to N recipient(s)`) or error
+   message in place of the Send button. The panel stays open so the user can re-send if needed.
+
+**State variable in `app.py`**:
+```python
+_last_status_df: pd.DataFrame = pd.DataFrame()   # updated on every successful /api/analyze
+```
+This avoids re-querying JIRA just to send email.
+
+**GOTCHA**: `_last_status_df` is module-level and therefore shared across all Flask workers if
+`debug=True` or multi-worker gunicorn is used. For this single-user dashboard use-case this
+is acceptable. Document it as a known limitation.
+
+**GOTCHA**: If `/api/send-email` is called before any analysis has been run (e.g., stale tab),
+return HTTP 400: `"No analysis results available. Please run Analyze first."`.
+
 ### Client-Side Pagination
 
 All issues are loaded into a JS array on the first API response. Only the current page's
@@ -326,6 +397,11 @@ Create `frontend/templates/dashboard.html` — full single-page dark dashboard w
 ### Phase 5: Configuration & Documentation
 
 Create `.env.template` and comprehensive `README.md`.
+
+### Phase 6: Email Feature
+
+Add `POST /api/send-email` route to `app.py`, add email panel HTML + JS to `dashboard.html`,
+add `EMAIL_*` vars to `.env.template`, add Email section to `README.md`.
 
 ---
 
@@ -533,7 +609,106 @@ if __name__ == '__main__':
     main()
 ```
 
+**4h. Globals for email config + last-analysis state**
+
+Add after the existing globals block (after `DEFAULT_JQL`):
+```python
+EMAIL_SMTP_SERVER       = os.getenv('EMAIL_SMTP_SERVER', '')
+EMAIL_FROM              = os.getenv('EMAIL_FROM', '')
+EMAIL_TO_RAW            = os.getenv('EMAIL_TO', '')
+DEFAULT_EMAIL_RECIPIENTS = [e.strip() for e in EMAIL_TO_RAW.split(',') if e.strip()]
+DEFAULT_EMAIL_SUBJECT   = os.getenv('EMAIL_SUBJECT', 'TriageX JIRA Analysis Report')
+
+_last_status_df: pd.DataFrame = pd.DataFrame()   # updated on every successful /api/analyze
+```
+
+Also update the `GET /` route to pass email config to the template:
+```python
+@app.route('/')
+def index():
+    return render_template('dashboard.html',
+        jira_url=JIRA_URL,
+        default_jql=DEFAULT_JQL,
+        has_token=bool(JIRA_API_TOKEN),
+        email_recipients=DEFAULT_EMAIL_RECIPIENTS,
+        email_from=EMAIL_FROM,
+        email_smtp=EMAIL_SMTP_SERVER,
+        default_email_subject=DEFAULT_EMAIL_SUBJECT,
+    )
+```
+
+Update `/api/analyze` to store the result in `_last_status_df`:
+```python
+global _last_status_df
+# ... (after status_df is computed successfully) ...
+_last_status_df = status_df.copy()
+```
+
+**4i. `POST /api/send-email` route**
+
+```python
+@app.route('/api/send-email', methods=['POST'])
+def send_email():
+    global _last_status_df
+
+    if _last_status_df.empty:
+        return jsonify({'error': 'No analysis results available. Please run Analyze first.'}), 400
+
+    body = request.get_json(force=True) or {}
+    recipients = [r.strip() for r in (body.get('recipients') or []) if r.strip()]
+    subject    = (body.get('subject') or DEFAULT_EMAIL_SUBJECT).strip()
+
+    if not recipients:
+        return jsonify({'error': 'No recipients selected.'}), 400
+
+    if not EMAIL_SMTP_SERVER:
+        return jsonify({'error': 'EMAIL_SMTP_SERVER is not configured in .env'}), 500
+
+    if not EMAIL_FROM:
+        return jsonify({'error': 'EMAIL_FROM is not configured in .env'}), 500
+
+    # Slice to first 50 rows
+    df_to_send = _last_status_df.head(50)
+
+    try:
+        html_body = _generate_email_html(df_to_send)
+        _send_via_smtp(html_body, recipients, subject)
+        return jsonify({'sent': len(recipients), 'recipients': recipients})
+    except Exception as exc:
+        traceback.print_exc()
+        return jsonify({'error': str(exc)}), 500
+```
+
+**4j. `_generate_email_html(status_df)` helper**
+
+Copy the HTML generation logic verbatim from `jira_table_analyze.py` `_generate_email_html()`
+(lines 595–760). Key points:
+- Detects `has_detail` from column presence (same as original).
+- Log Files column shows count badge, not full filenames (same as original).
+- Returns a complete `<!DOCTYPE html>` string.
+
+**4k. `_send_via_smtp(html_body, recipients, subject)` helper**
+
+```python
+def _send_via_smtp(html_body: str, recipients: list, subject: str):
+    import smtplib
+    from email.mime.multipart import MIMEMultipart
+    from email.mime.text import MIMEText
+
+    msg = MIMEMultipart()
+    msg['From']    = EMAIL_FROM
+    msg['To']      = ', '.join(recipients)
+    msg['Subject'] = subject
+    msg.attach(MIMEText(html_body, 'html', 'utf-8'))
+
+    with smtplib.SMTP(EMAIL_SMTP_SERVER, 25) as server:
+        server.sendmail(EMAIL_FROM, recipients, msg.as_string())
+    print(f'[TriageX] Email sent to {len(recipients)} recipient(s) via {EMAIL_SMTP_SERVER}')
+```
+
 - **GOTCHA**: `debug=False` in production. User can set `FLASK_DEBUG=1` env var if needed.
+- **GOTCHA**: `_last_status_df` is module-level (shared state). Acceptable for a single-user
+  dashboard; document as known limitation in README.
 - **VALIDATE**: `cd application/backend && python app.py --help` — prints usage with `--open` and `--port`.
 - **VALIDATE**: `cd application/backend && python -c "from app import app; print('import OK')"`
 
@@ -629,7 +804,38 @@ This is the largest task. Implement the entire file in one write. Structure:
       </div>
     </div>
 
-    <!-- 5c. Line chart -->
+    <!-- 5c. Email Report panel (between cards and chart) -->
+    <details id="email-panel">
+      <summary>Email This Report</summary>
+      <div class="email-panel-body">
+        <div class="email-from-hint">
+          From: <code>{{ email_from }}</code> via <code>{{ email_smtp }}</code>
+        </div>
+        <label class="email-label">To:</label>
+        <div id="recipient-list">
+          {% for addr in email_recipients %}
+          <label class="recipient-row">
+            <input type="checkbox" class="recipient-cb" value="{{ addr }}">
+            {{ addr }}
+          </label>
+          {% endfor %}
+        </div>
+        <div class="email-actions">
+          <button onclick="selectAllRecipients()">Select All</button>
+          <button onclick="clearRecipients()">Clear</button>
+        </div>
+        <label class="email-label">Subject:
+          <input type="text" id="email-subject" value="{{ default_email_subject | e }}">
+        </label>
+        <small class="muted">Sends the first 50 issues from the current analysis.</small>
+        <div class="email-send-row">
+          <button id="send-btn" onclick="sendReport()" disabled>Send Report</button>
+          <span id="email-status" class="email-status"></span>
+        </div>
+      </div>
+    </details>
+
+    <!-- 5d. Line chart -->
     <div class="chart-card">
       <h2>Weekly Success Rate</h2>
       <div class="chart-wrap">
@@ -699,7 +905,24 @@ renderPagination()       — generate page number buttons
 changeRowsPerPage(val)   — update rowsPerPage, reset to page 1, re-render
 updateShowingCount()     — update "Showing X–Y of Z" label
 goToPage(n)              — set currentPage, call renderPage
+updateEmailSubject()     — append active date range to subject field after each analysis
+updateSendButton()       — enable/disable Send button based on checked recipient count
+selectAllRecipients()    — check all .recipient-cb checkboxes, call updateSendButton()
+clearRecipients()        — uncheck all .recipient-cb checkboxes, call updateSendButton()
+sendReport()             — POST /api/send-email, show inline success/error in #email-status
 ```
+
+**Email JS notes**:
+- Wire `updateSendButton()` to the `change` event on every `.recipient-cb` checkbox (add
+  listeners after DOM load, not inline `onchange`, since the checkboxes are Jinja2-rendered).
+- `updateEmailSubject()` is called inside `runAnalysis()` after a successful response. It reads
+  the current `from_date` / `to_date` inputs. If both are filled, append
+  `(fromDate – toDate)` to the base subject. If dates are empty, strip any previous parenthetical.
+- `sendReport()` resets `#email-status` to empty, sets the button to `Sending…` + disabled,
+  awaits the fetch, then shows `✓ Report sent to N recipient(s)` (green) or
+  `✗ <error message>` (red), and re-enables the button.
+- The `<details id="email-panel">` stays closed by default. Do **not** auto-open it after
+  analysis — let the user open it intentionally.
 
 **Chart.js config** (line chart):
 ```javascript
@@ -786,6 +1009,20 @@ JQL_QUERY=project in (DBAASOPS,EXACSOPS,EXACCOPS) AND labels = oneview_triagex_i
 # ── Dashboard Settings ────────────────────────────────────────────────────────
 # Port for the web server (default: 5000)
 DASHBOARD_PORT=5000
+
+# ── Email Configuration ───────────────────────────────────────────────────────
+# Internal SMTP relay — plain SMTP on port 25, no TLS, no authentication required.
+EMAIL_SMTP_SERVER=internal-mail-router.oracle.com
+
+# Sender address (must be a valid Oracle internal address)
+EMAIL_FROM=your.name@oracle.com
+
+# Comma-separated list of recipient email addresses shown in the dashboard dropdown.
+# The engineer selects one or more before clicking "Send Report".
+EMAIL_TO=alice@oracle.com,bob@oracle.com,carol@oracle.com
+
+# Default subject line (the dashboard appends the active date range automatically)
+EMAIL_SUBJECT=TriageX JIRA Analysis Report
 ```
 
 - **VALIDATE**: `diff application/.env.template application/.env.template` — no stray characters.
@@ -891,10 +1128,25 @@ python backend/app.py --port 8080 --open
   If no dates are selected, the JQL is sent as-is.
 - **Max Results**: JIRA API maximum is 1000 per query. For large date ranges, increase this
   value in Advanced Options. The default is 500.
+- **Email Report**: The first 50 issues from the current analysis are sent as a styled HTML
+  email matching the `jira_status_report.html` format. The Log Files column in the email shows
+  a file count badge rather than full filenames to keep the email compact. Re-running Analyze
+  replaces the buffered results; the Send button always reflects the latest analysis.
 
-**7i. Configuration reference** — table of all env vars with required/optional and defaults.
+**7i. Emailing a report** (step-by-step)
+1. Run an analysis (click **Analyze**) until results appear.
+2. Click **Email This Report** to expand the email panel.
+3. Check one or more recipient boxes. Use **Select All** or **Clear** as needed.
+4. Edit the **Subject** line if desired (auto-includes the date range you selected).
+5. Click **Send Report**. A confirmation or error message appears inline.
+6. To send to a different set of recipients, uncheck/recheck and click **Send Report** again.
 
-**7j. Troubleshooting**
+Note: Email uses the Oracle internal SMTP relay (`EMAIL_SMTP_SERVER`). This only works on the
+corporate network or VPN. No authentication is required.
+
+**7j. Configuration reference** — table of all env vars with required/optional and defaults.
+
+**7k. Troubleshooting**
 
 | Problem | Cause | Fix |
 |---|---|---|
@@ -904,8 +1156,12 @@ python backend/app.py --port 8080 --open
 | `No issues found` | JQL returns 0 results in date range | Widen date range or adjust JQL |
 | Port already in use | Another process on port 5000 | Use `--port 8080` |
 | Chart shows "not enough data" | All issues fall within a single calendar week | Widen date range |
+| `No analysis results available` | Send clicked before Analyze | Run Analyze first |
+| `EMAIL_SMTP_SERVER is not configured` | Email vars missing from .env | Add `EMAIL_*` vars to `.env` |
+| Email not delivered | Off VPN or SMTP relay unreachable | Connect to Oracle network or VPN |
+| Send button stays disabled | No recipients checked | Check at least one recipient |
 
-- **VALIDATE**: Read through README and confirm all 10 sections are present and correct.
+- **VALIDATE**: Read through README and confirm all 11 sections are present and correct.
 
 ---
 
@@ -933,6 +1189,18 @@ is manual run-based).
 11. Clear JQL → Analyze → error "JQL query cannot be empty" shown.
 12. `python backend/app.py --open` → browser auto-opens at `http://localhost:5000`.
 13. `python backend/app.py --port 8080` → server starts on port 8080.
+14. After a successful analysis: click **Email This Report** → panel expands showing all
+    addresses from `EMAIL_TO` as unchecked checkboxes.
+15. Click **Send Report** with no recipients checked → button remains disabled (cannot click).
+16. Check one recipient, click **Send Report** → success message `✓ Report sent to 1 recipient(s)`
+    appears; email arrives with correct HTML format matching `jira_status_report.html`.
+17. Click **Select All** → all boxes checked; Send button enabled. Click **Clear** → all
+    unchecked; button disabled again.
+18. Call `POST /api/send-email` via curl before any analysis → returns
+    `{"error": "No analysis results available. Please run Analyze first."}` with HTTP 400.
+19. Email subject auto-appends date range after analysis with dates filled (e.g.,
+    `TriageX JIRA Analysis Report (2026-04-23 – 2026-04-30)`).
+20. Email subject has no appended range when no dates were selected.
 
 ### Edge Cases
 
@@ -994,8 +1262,27 @@ curl -s -X POST http://localhost:5000/api/analyze \
 kill %1
 ```
 
-### Level 5: Browser Manual Test
-Open `http://localhost:5000` and run through all 13 manual test steps above.
+### Level 5: Email Endpoint (no token required for the 400 check)
+```bash
+cd application/backend
+python app.py &
+sleep 2
+# Before any analysis — expect 400
+curl -s -X POST http://localhost:5000/api/send-email \
+     -H 'Content-Type: application/json' \
+     -d '{"recipients":["a@oracle.com"],"subject":"Test"}' | python -m json.tool
+# Expected: {"error": "No analysis results available. Please run Analyze first."}
+
+# No recipients — expect 400
+curl -s -X POST http://localhost:5000/api/send-email \
+     -H 'Content-Type: application/json' \
+     -d '{"recipients":[],"subject":"Test"}' | python -m json.tool
+# Expected: {"error": "No recipients selected."}
+kill %1
+```
+
+### Level 6: Browser Manual Test
+Open `http://localhost:5000` and run through all 20 manual test steps above.
 
 ---
 
@@ -1019,9 +1306,18 @@ Open `http://localhost:5000` and run through all 13 manual test steps above.
 - [ ] Weekly chart: Y-axis = 0–100 %, X-axis = week labels, tooltip shows count
 - [ ] Log Files column: first 2 shown, rest expandable under "+N more"
 - [ ] JIRA ID links open in a new tab
-- [ ] `application/.env.template` contains all required vars with comments
-- [ ] `application/README.md` covers all 10 sections including PAT generation steps
+- [ ] `application/.env.template` contains all required vars with comments (incl. EMAIL_*)
+- [ ] `application/README.md` covers all 11 sections including PAT generation and email steps
 - [ ] Tar `application/` → extract on a clean machine → README instructions work end-to-end
+- [ ] "Email This Report" panel is closed by default; expands on click
+- [ ] Recipient list is populated from `EMAIL_TO` env var (one checkbox per address)
+- [ ] "Select All" checks all recipients; "Clear" unchecks all
+- [ ] Send button is disabled when zero recipients are checked
+- [ ] Subject pre-filled from `EMAIL_SUBJECT`; date range auto-appended after analysis with dates
+- [ ] Clicking Send with ≥1 recipient POSTs to `/api/send-email`; success message shown inline
+- [ ] `/api/send-email` before any analysis → HTTP 400 "No analysis results available"
+- [ ] Email content matches `jira_status_report.html` format; capped at first 50 issues
+- [ ] Log Files column in email shows count badge, not full filenames
 
 ---
 
@@ -1030,12 +1326,14 @@ Open `http://localhost:5000` and run through all 13 manual test steps above.
 - [ ] TASK 1: Deleted `application/app.py` and `application/requirements.txt`
 - [ ] TASK 2: `application/backend/jira_analyzer.py` created (5 methods, no parent imports)
 - [ ] TASK 3: `application/backend/requirements.txt` created (4 deps)
-- [ ] TASK 4: `application/backend/app.py` created (routes, JQL helpers, argparse, weekly stats)
-- [ ] TASK 5: `application/frontend/templates/dashboard.html` created (full dark dashboard)
-- [ ] TASK 6: `application/.env.template` created
-- [ ] TASK 7: `application/README.md` created (all 10 sections)
-- [ ] All Level 1–4 validation commands pass
-- [ ] All 13 manual test steps pass
+- [ ] TASK 4: `application/backend/app.py` created (routes, JQL helpers, argparse, weekly stats,
+       `_last_status_df` state, `POST /api/send-email`, `_generate_email_html`, `_send_via_smtp`)
+- [ ] TASK 5: `application/frontend/templates/dashboard.html` created (full dark dashboard +
+       email panel with recipient checkboxes, subject input, Send button, inline status)
+- [ ] TASK 6: `application/.env.template` created (incl. all EMAIL_* vars with comments)
+- [ ] TASK 7: `application/README.md` created (all 11 sections incl. email usage + troubleshooting)
+- [ ] All Level 1–5 validation commands pass
+- [ ] All 20 manual test steps pass
 - [ ] All acceptance criteria checked
 
 ---
@@ -1077,5 +1375,8 @@ transparent. Edge cases can be handled in future iterations.
 **Confidence Score: 9/10**
 
 All patterns are directly extracted from the working codebase. The JIRA client is a verbatim
-copy of tested code. The only uncertainty is Chart.js CDN availability in air-gapped
-environments — fallback: bundle the minified JS inside the HTML.
+copy of tested code. The email HTML and SMTP pattern are copied verbatim from the working
+`jira_table_analyze.py` implementation. The only uncertainties are:
+- Chart.js CDN availability in air-gapped environments — fallback: bundle the minified JS.
+- `_last_status_df` module-level state is not safe under multi-worker deployments (acceptable
+  for a single-user on-call tool; documented in README as a known limitation).

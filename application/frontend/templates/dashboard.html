@@ -1,0 +1,860 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>TriageX JIRA Dashboard</title>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
+  <style>
+    :root {
+      --bg:           #0d1117;
+      --bg-card:      #161b22;
+      --bg-input:     #21262d;
+      --border:       #30363d;
+      --text:         #e6edf3;
+      --text-muted:   #8b949e;
+      --blue:         #2f81f7;
+      --blue-dark:    #0052CC;
+      --green:        #3fb950;
+      --red:          #f85149;
+      --success-bg:   #e3fcef;
+      --success-text: #006644;
+      --failed-bg:    #ffebe6;
+      --failed-text:  #bf2600;
+    }
+
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      font-size: 14px;
+      line-height: 1.5;
+      min-height: 100vh;
+    }
+
+    a { color: var(--blue); }
+    a:hover { text-decoration: underline; }
+
+    header {
+      background: var(--bg-card);
+      border-bottom: 1px solid var(--border);
+      padding: 20px 32px;
+    }
+    header h1 { font-size: 22px; font-weight: 600; color: var(--text); }
+    header p  { color: var(--text-muted); font-size: 13px; margin-top: 4px; }
+
+    .container { max-width: 1200px; margin: 0 auto; padding: 24px 32px; }
+
+    /* Controls */
+    #controls {
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 20px;
+      margin-bottom: 20px;
+    }
+
+    .shortcuts { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 16px; }
+    .shortcuts button {
+      background: var(--bg-input);
+      border: 1px solid var(--border);
+      color: var(--text);
+      padding: 6px 14px;
+      border-radius: 6px;
+      cursor: pointer;
+      font-size: 13px;
+    }
+    .shortcuts button:hover { border-color: var(--blue); color: var(--blue); }
+
+    .date-row { display: flex; gap: 16px; flex-wrap: wrap; margin-bottom: 16px; }
+    .date-row label { display: flex; flex-direction: column; gap: 4px; font-size: 13px; color: var(--text-muted); }
+    .date-row input[type="date"] {
+      background: var(--bg-input);
+      border: 1px solid var(--border);
+      color: var(--text);
+      padding: 7px 10px;
+      border-radius: 6px;
+      font-size: 14px;
+    }
+
+    details summary {
+      cursor: pointer;
+      color: var(--text-muted);
+      font-size: 13px;
+      padding: 6px 0;
+      user-select: none;
+    }
+    details summary:hover { color: var(--text); }
+
+    #advanced { margin-bottom: 16px; }
+    #advanced label {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      margin-top: 12px;
+      font-size: 13px;
+      color: var(--text-muted);
+    }
+    #advanced textarea, #advanced input[type="number"] {
+      background: var(--bg-input);
+      border: 1px solid var(--border);
+      color: var(--text);
+      padding: 8px 10px;
+      border-radius: 6px;
+      font-size: 13px;
+      font-family: 'Courier New', monospace;
+      resize: vertical;
+    }
+    #advanced small { color: var(--text-muted); font-size: 12px; }
+    .checkbox-label { flex-direction: row !important; align-items: center; gap: 8px !important; flex-wrap: wrap; }
+    .checkbox-label input[type="checkbox"] { width: 16px; height: 16px; cursor: pointer; }
+
+    #analyze-btn {
+      background: var(--blue);
+      color: #fff;
+      border: none;
+      padding: 9px 20px;
+      border-radius: 6px;
+      font-size: 14px;
+      font-weight: 600;
+      cursor: pointer;
+      width: 100%;
+      margin-top: 8px;
+    }
+    #analyze-btn:hover { background: #388bfd; }
+    #analyze-btn:disabled { opacity: 0.6; cursor: not-allowed; }
+
+    /* Error banner */
+    #error-banner {
+      background: #3d1515;
+      border: 1px solid var(--red);
+      color: #ffa0a0;
+      border-radius: 8px;
+      padding: 12px 16px;
+      margin-bottom: 20px;
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      gap: 12px;
+    }
+    #error-banner button {
+      background: none;
+      border: none;
+      color: #ffa0a0;
+      font-size: 18px;
+      cursor: pointer;
+      flex-shrink: 0;
+    }
+
+    /* Token warning */
+    #token-warning {
+      background: #2d1f00;
+      border: 1px solid #e3b341;
+      color: #e3b341;
+      border-radius: 8px;
+      padding: 12px 16px;
+      margin-bottom: 20px;
+    }
+
+    /* Results */
+    #results { display: flex; flex-direction: column; gap: 20px; }
+
+    #jql-display {
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 12px 16px;
+      font-size: 13px;
+      color: var(--text-muted);
+      word-break: break-all;
+    }
+    #jql-display code { color: var(--text); font-family: 'Courier New', monospace; }
+
+    /* Cards */
+    .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 16px; }
+    .card {
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 20px;
+      text-align: center;
+    }
+    .card-value { font-size: 32px; font-weight: 700; color: var(--text); }
+    .card-label { font-size: 12px; color: var(--text-muted); margin-top: 4px; text-transform: uppercase; letter-spacing: 0.5px; }
+    .card-success .card-value { color: var(--green); }
+
+    /* Email panel */
+    #email-panel {
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 0;
+      overflow: hidden;
+    }
+    #email-panel > summary {
+      padding: 14px 20px;
+      font-size: 14px;
+      font-weight: 600;
+      color: var(--text);
+      border-bottom: 1px solid transparent;
+    }
+    #email-panel[open] > summary { border-bottom-color: var(--border); }
+
+    .email-panel-body { padding: 16px 20px; display: flex; flex-direction: column; gap: 12px; }
+    .email-from-hint { font-size: 12px; color: var(--text-muted); }
+    .email-from-hint code { color: var(--text); }
+    .email-label { font-size: 13px; color: var(--text-muted); font-weight: 600; display: block; }
+
+    #recipient-list { display: flex; flex-direction: column; gap: 6px; max-height: 200px; overflow-y: auto; }
+    .recipient-row { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--text); cursor: pointer; }
+    .recipient-row input[type="checkbox"] { width: 15px; height: 15px; cursor: pointer; }
+
+    .email-actions { display: flex; gap: 8px; }
+    .email-actions button {
+      background: var(--bg-input);
+      border: 1px solid var(--border);
+      color: var(--text);
+      padding: 5px 12px;
+      border-radius: 6px;
+      font-size: 12px;
+      cursor: pointer;
+    }
+    .email-actions button:hover { border-color: var(--blue); }
+
+    #email-subject {
+      background: var(--bg-input);
+      border: 1px solid var(--border);
+      color: var(--text);
+      padding: 7px 10px;
+      border-radius: 6px;
+      font-size: 13px;
+      width: 100%;
+      margin-top: 4px;
+      display: block;
+    }
+
+    .email-send-row { display: flex; align-items: center; gap: 12px; }
+    #send-btn {
+      background: var(--green);
+      color: #fff;
+      border: none;
+      padding: 8px 18px;
+      border-radius: 6px;
+      font-size: 13px;
+      font-weight: 600;
+      cursor: pointer;
+    }
+    #send-btn:hover:not(:disabled) { opacity: 0.9; }
+    #send-btn:disabled { opacity: 0.45; cursor: not-allowed; }
+    .email-status { font-size: 13px; }
+    .email-status.ok  { color: var(--green); }
+    .email-status.err { color: var(--red); }
+
+    /* Chart */
+    .chart-card {
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 20px;
+    }
+    .chart-card h2 { font-size: 16px; font-weight: 600; margin-bottom: 16px; }
+    .chart-wrap { position: relative; height: 280px; }
+
+    /* Table */
+    .table-section {
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      overflow: hidden;
+    }
+    .table-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 16px 20px;
+      border-bottom: 1px solid var(--border);
+      flex-wrap: wrap;
+      gap: 10px;
+    }
+    .table-header h2 { font-size: 16px; font-weight: 600; }
+    .rows-control { display: flex; align-items: center; gap: 10px; }
+    .rows-control label { font-size: 13px; color: var(--text-muted); }
+    .rows-control select {
+      background: var(--bg-input);
+      border: 1px solid var(--border);
+      color: var(--text);
+      padding: 5px 8px;
+      border-radius: 6px;
+      font-size: 13px;
+    }
+
+    .table-wrap { overflow-x: auto; }
+    table { width: 100%; border-collapse: collapse; }
+    thead th {
+      background: var(--bg);
+      color: var(--text-muted);
+      text-align: left;
+      padding: 10px 16px;
+      font-size: 12px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      border-bottom: 1px solid var(--border);
+      white-space: nowrap;
+    }
+    tbody tr { border-bottom: 1px solid var(--border); }
+    tbody tr:last-child { border-bottom: none; }
+    tbody tr:hover { background: rgba(255,255,255,0.03); }
+    tbody td { padding: 10px 16px; vertical-align: top; font-size: 13px; }
+
+    .badge {
+      display: inline-block;
+      padding: 2px 8px;
+      border-radius: 3px;
+      font-size: 11px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.3px;
+    }
+    .badge-success { background: var(--success-bg); color: var(--success-text); }
+    .badge-failed  { background: var(--failed-bg);  color: var(--failed-text); }
+
+    .log-file {
+      font-size: 12px;
+      color: var(--text-muted);
+      font-family: 'Courier New', monospace;
+      padding: 1px 0;
+      word-break: break-all;
+    }
+    .log-file details summary { font-size: 12px; color: var(--blue); cursor: pointer; }
+
+    #pagination {
+      display: flex;
+      justify-content: center;
+      gap: 6px;
+      padding: 14px 16px;
+      border-top: 1px solid var(--border);
+      flex-wrap: wrap;
+    }
+    .page-btn {
+      background: var(--bg-input);
+      border: 1px solid var(--border);
+      color: var(--text);
+      padding: 5px 11px;
+      border-radius: 6px;
+      font-size: 13px;
+      cursor: pointer;
+    }
+    .page-btn:hover { border-color: var(--blue); }
+    .page-btn.active { background: var(--blue); border-color: var(--blue); color: #fff; }
+    .page-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+
+    /* Loading overlay */
+    #loading {
+      position: fixed;
+      inset: 0;
+      background: rgba(13,17,23,0.85);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 16px;
+      z-index: 1000;
+    }
+    .spinner {
+      width: 40px;
+      height: 40px;
+      border: 3px solid var(--border);
+      border-top-color: var(--blue);
+      border-radius: 50%;
+      animation: spin 0.8s linear infinite;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    .muted { color: var(--text-muted); font-size: 12px; }
+    .hidden { display: none !important; }
+  </style>
+</head>
+<body>
+
+<header>
+  <h1>TriageX JIRA Dashboard</h1>
+  <p>Oracle ExaInfra Triage Status Tracker</p>
+</header>
+
+<div class="container">
+
+  <!-- Controls -->
+  <section id="controls">
+    <div class="shortcuts">
+      <button onclick="setRange(7)">Last 7d</button>
+      <button onclick="setRange(14)">Last 14d</button>
+      <button onclick="setRange(30)">Last 30d</button>
+      <button onclick="setRange(90)">Last 90d</button>
+    </div>
+
+    <div class="date-row">
+      <label>From <input type="date" id="from-date"></label>
+      <label>To   <input type="date" id="to-date"></label>
+    </div>
+
+    <details id="advanced">
+      <summary>Advanced Options</summary>
+      <label>JQL Query
+        <textarea id="jql-input" rows="3">{{ default_jql | e }}</textarea>
+        <small>Date conditions are overridden by the date pickers above when both are filled.</small>
+      </label>
+      <label>Max Results (JIRA fetch limit, 1–1000)
+        <input type="number" id="max-results" value="500" min="1" max="1000">
+      </label>
+      <label class="checkbox-label">
+        <input type="checkbox" id="include-detail">
+        Include Report Links &amp; Log Files
+        <small>(fetches one extra JIRA API call per ticket — slower)</small>
+      </label>
+    </details>
+
+    <button id="analyze-btn" onclick="runAnalysis()">Analyze</button>
+  </section>
+
+  <!-- Error banner -->
+  <div id="error-banner" class="hidden">
+    <span id="error-text"></span>
+    <button onclick="hideError()">&#215;</button>
+  </div>
+
+  <!-- Token warning -->
+  {% if not has_token %}
+  <div id="token-warning">
+    &#9888; JIRA_API_TOKEN is not set. Add it to application/.env and restart.
+  </div>
+  {% endif %}
+
+  <!-- Results -->
+  <section id="results" class="hidden">
+
+    <!-- JQL display -->
+    <div id="jql-display">
+      <strong>Query:</strong> <code id="jql-used"></code>
+    </div>
+
+    <!-- Summary cards -->
+    <div class="cards">
+      <div class="card">
+        <div class="card-value" id="stat-total">—</div>
+        <div class="card-label">Total Triaged</div>
+      </div>
+      <div class="card card-success">
+        <div class="card-value" id="stat-success">—</div>
+        <div class="card-label">Successful</div>
+      </div>
+      <div class="card card-success">
+        <div class="card-value" id="stat-pct">—</div>
+        <div class="card-label">Success Rate</div>
+      </div>
+    </div>
+
+    <!-- Email panel (between cards and chart) -->
+    <details id="email-panel">
+      <summary>&#9993; Email This Report</summary>
+      <div class="email-panel-body">
+        <div class="email-from-hint">
+          From: <code>{{ email_from | e }}</code> via <code>{{ email_smtp | e }}</code>
+        </div>
+        <span class="email-label">To:</span>
+        <div id="recipient-list">
+          {% for addr in email_recipients %}
+          <label class="recipient-row">
+            <input type="checkbox" class="recipient-cb" value="{{ addr }}">
+            {{ addr }}
+          </label>
+          {% endfor %}
+        </div>
+        <div class="email-actions">
+          <button onclick="selectAllRecipients()">Select All</button>
+          <button onclick="clearRecipients()">Clear</button>
+        </div>
+        <label class="email-label">Subject:
+          <input type="text" id="email-subject" value="{{ default_email_subject | e }}">
+        </label>
+        <small class="muted">Sends the first 50 issues from the current analysis.</small>
+        <div class="email-send-row">
+          <button id="send-btn" onclick="sendReport()" disabled>Send Report</button>
+          <span id="email-status" class="email-status"></span>
+        </div>
+      </div>
+    </details>
+
+    <!-- Weekly chart -->
+    <div class="chart-card">
+      <h2>Weekly Success Rate</h2>
+      <div class="chart-wrap">
+        <canvas id="weekly-chart"></canvas>
+      </div>
+      <p id="chart-no-data" class="hidden muted" style="margin-top:12px;text-align:center;">
+        Not enough date range for weekly breakdown.
+      </p>
+    </div>
+
+    <!-- Table section -->
+    <div class="table-section">
+      <div class="table-header">
+        <h2>JIRA Status Report</h2>
+        <div class="rows-control">
+          <label for="rows-per-page">Rows per page:</label>
+          <select id="rows-per-page" onchange="changeRowsPerPage(this.value)">
+            <option value="10">10</option>
+            <option value="25" selected>25</option>
+            <option value="50">50</option>
+            <option value="100">100</option>
+          </select>
+          <span id="showing-count" class="muted"></span>
+        </div>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>JIRA ID</th>
+              <th>Status</th>
+              <th>Date Created</th>
+              <th>Report</th>
+              <th>Log Files</th>
+            </tr>
+          </thead>
+          <tbody id="table-body"></tbody>
+        </table>
+      </div>
+      <div id="pagination"></div>
+    </div>
+
+  </section>
+
+  <!-- Loading overlay -->
+  <div id="loading" class="hidden">
+    <div class="spinner"></div>
+    <p>Fetching from JIRA&hellip;</p>
+  </div>
+
+</div><!-- /container -->
+
+<script>
+  let allIssues   = [];
+  let currentPage = 1;
+  let rowsPerPage = 25;
+  let chartInstance = null;
+  let activeWeeklyData = [];
+  let baseSubject = {{ default_email_subject | tojson }};
+
+  // ── Date shortcuts ────────────────────────────────────────────────────────
+  function setRange(days) {
+    const today = new Date();
+    const from  = new Date(today);
+    from.setDate(from.getDate() - days);
+    document.getElementById('to-date').value   = fmtDate(today);
+    document.getElementById('from-date').value = fmtDate(from);
+  }
+
+  function fmtDate(d) {
+    return d.toISOString().slice(0, 10);
+  }
+
+  // ── Analysis ──────────────────────────────────────────────────────────────
+  async function runAnalysis() {
+    hideError();
+    const fromDate = document.getElementById('from-date').value;
+    const toDate   = document.getElementById('to-date').value;
+    const jql      = document.getElementById('jql-input').value;
+    const maxRes   = parseInt(document.getElementById('max-results').value) || 500;
+    const detail   = document.getElementById('include-detail').checked;
+
+    showLoading(true);
+    document.getElementById('analyze-btn').disabled = true;
+
+    try {
+      const res = await fetch('/api/analyze', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({
+          from_date: fromDate, to_date: toDate,
+          jql: jql, max_results: maxRes, include_detail: detail
+        })
+      });
+      const data = await res.json();
+
+      if (!res.ok || data.error) {
+        showError(data.error || 'Unknown error');
+        return;
+      }
+
+      // Show results section
+      document.getElementById('results').classList.remove('hidden');
+      document.getElementById('jql-used').textContent = data.jql || '';
+
+      renderSummary(data.summary);
+      activeWeeklyData = data.weekly_data || [];
+      renderChart(activeWeeklyData);
+      allIssues   = data.issues || [];
+      currentPage = 1;
+      renderPage();
+      updateEmailSubject(fromDate, toDate);
+      if (data.warning) showError(data.warning);
+
+    } catch (err) {
+      showError('Network error: ' + err.message);
+    } finally {
+      showLoading(false);
+      document.getElementById('analyze-btn').disabled = false;
+    }
+  }
+
+  function showError(msg) {
+    document.getElementById('error-text').textContent = msg;
+    document.getElementById('error-banner').classList.remove('hidden');
+  }
+
+  function hideError() {
+    document.getElementById('error-banner').classList.add('hidden');
+  }
+
+  function showLoading(on) {
+    document.getElementById('loading').classList.toggle('hidden', !on);
+  }
+
+  // ── Summary cards ─────────────────────────────────────────────────────────
+  function renderSummary(s) {
+    document.getElementById('stat-total').textContent   = s.total;
+    document.getElementById('stat-success').textContent = s.success;
+    document.getElementById('stat-pct').textContent     = s.success_pct + '%';
+  }
+
+  // ── Chart ─────────────────────────────────────────────────────────────────
+  function renderChart(weeklyData) {
+    const canvas   = document.getElementById('weekly-chart');
+    const noData   = document.getElementById('chart-no-data');
+
+    if (chartInstance) { chartInstance.destroy(); chartInstance = null; }
+
+    if (!weeklyData || weeklyData.length < 2) {
+      canvas.classList.add('hidden');
+      noData.classList.remove('hidden');
+      return;
+    }
+
+    canvas.classList.remove('hidden');
+    noData.classList.add('hidden');
+
+    const ctx = canvas.getContext('2d');
+    chartInstance = new Chart(ctx, {
+      type: 'line',
+      data: {
+        labels: weeklyData.map(w => w.label),
+        datasets: [{
+          label: 'Success Rate (%)',
+          data: weeklyData.map(w => w.success_rate),
+          borderColor: '#3fb950',
+          backgroundColor: 'rgba(63, 185, 80, 0.08)',
+          fill: true,
+          tension: 0.3,
+          pointRadius: 5,
+          pointHoverRadius: 8,
+          pointBackgroundColor: '#3fb950',
+        }]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        scales: {
+          y: {
+            min: 0, max: 100,
+            grid:  { color: '#30363d' },
+            ticks: { color: '#8b949e', callback: v => v + '%' },
+            title: { display: true, text: 'Success Rate (%)', color: '#8b949e' }
+          },
+          x: {
+            grid:  { color: '#30363d' },
+            ticks: { color: '#8b949e' },
+            title: { display: true, text: 'Week', color: '#8b949e' }
+          }
+        },
+        plugins: {
+          legend: { labels: { color: '#e6edf3' } },
+          tooltip: {
+            callbacks: {
+              afterBody: (items) => {
+                const d = weeklyData[items[0].dataIndex];
+                return [`Success: ${d.success} / ${d.total}`];
+              }
+            }
+          }
+        }
+      }
+    });
+  }
+
+  // ── Table pagination ──────────────────────────────────────────────────────
+  function renderPage() {
+    const start      = (currentPage - 1) * rowsPerPage;
+    const pageIssues = allIssues.slice(start, start + rowsPerPage);
+    document.getElementById('table-body').innerHTML = pageIssues.map(renderRow).join('');
+    renderPagination();
+    updateShowingCount();
+  }
+
+  function renderRow(issue) {
+    const badgeCls  = issue.status === 'Success' ? 'badge-success' : 'badge-failed';
+    const badgeTxt  = issue.status === 'Success' ? 'SUCCESS' : 'FAILED';
+    const reportCell = issue.report_link
+      ? `<a href="${escHtml(safeUrl(issue.report_link))}" target="_blank">Report</a>`
+      : '<span style="color:var(--text-muted)">—</span>';
+    return `<tr>
+      <td><a href="${escHtml(safeUrl(issue.link))}" target="_blank">${escHtml(issue.jira_id)}</a></td>
+      <td><span class="badge ${badgeCls}">${badgeTxt}</span></td>
+      <td>${escHtml(issue.date)}</td>
+      <td>${reportCell}</td>
+      <td>${renderLogFiles(issue.log_files || [])}</td>
+    </tr>`;
+  }
+
+  function renderLogFiles(files) {
+    if (!files || files.length === 0) return '<span style="color:var(--text-muted)">—</span>';
+    const visible = files.slice(0, 2).map(f => `<div class="log-file">${escHtml(f)}</div>`).join('');
+    const hidden  = files.slice(2);
+    if (hidden.length === 0) return visible;
+    const hiddenHtml = hidden.map(f => `<div class="log-file">${escHtml(f)}</div>`).join('');
+    return `${visible}<details><summary>+${hidden.length} more</summary>${hiddenHtml}</details>`;
+  }
+
+  function renderPagination() {
+    const total = Math.ceil(allIssues.length / rowsPerPage);
+    if (total <= 1) { document.getElementById('pagination').innerHTML = ''; return; }
+
+    let html = `<button class="page-btn" onclick="goToPage(${currentPage-1})" ${currentPage===1?'disabled':''}>&#8249; Prev</button>`;
+
+    // Show first, last, and surrounding pages
+    const range = [];
+    for (let i = 1; i <= total; i++) {
+      if (i === 1 || i === total || (i >= currentPage - 2 && i <= currentPage + 2)) {
+        range.push(i);
+      }
+    }
+    let prev = null;
+    for (const p of range) {
+      if (prev && p - prev > 1) html += '<span style="color:var(--text-muted);padding:0 4px;">…</span>';
+      html += `<button class="page-btn${p===currentPage?' active':''}" onclick="goToPage(${p})">${p}</button>`;
+      prev = p;
+    }
+
+    html += `<button class="page-btn" onclick="goToPage(${currentPage+1})" ${currentPage===total?'disabled':''}>Next &#8250;</button>`;
+    document.getElementById('pagination').innerHTML = html;
+  }
+
+  function changeRowsPerPage(val) {
+    rowsPerPage = parseInt(val);
+    currentPage = 1;
+    renderPage();
+  }
+
+  function updateShowingCount() {
+    const total = allIssues.length;
+    if (total === 0) { document.getElementById('showing-count').textContent = ''; return; }
+    const start = (currentPage - 1) * rowsPerPage + 1;
+    const end   = Math.min(currentPage * rowsPerPage, total);
+    document.getElementById('showing-count').textContent = `Showing ${start}–${end} of ${total}`;
+  }
+
+  function goToPage(n) {
+    const total = Math.ceil(allIssues.length / rowsPerPage);
+    if (n < 1 || n > total) return;
+    currentPage = n;
+    renderPage();
+  }
+
+  // ── Email ─────────────────────────────────────────────────────────────────
+  function updateEmailSubject(fromDate, toDate) {
+    const el = document.getElementById('email-subject');
+    if (!el) return;
+    // Strip any previous parenthetical
+    let sub = baseSubject;
+    if (fromDate && toDate) {
+      sub = `${baseSubject} (${fromDate} – ${toDate})`;
+    }
+    el.value = sub;
+  }
+
+  function updateSendButton() {
+    const checked = document.querySelectorAll('.recipient-cb:checked').length;
+    document.getElementById('send-btn').disabled = (checked === 0);
+  }
+
+  function selectAllRecipients() {
+    document.querySelectorAll('.recipient-cb').forEach(cb => cb.checked = true);
+    updateSendButton();
+  }
+
+  function clearRecipients() {
+    document.querySelectorAll('.recipient-cb').forEach(cb => cb.checked = false);
+    updateSendButton();
+  }
+
+  async function sendReport() {
+    const recipients = Array.from(document.querySelectorAll('.recipient-cb:checked')).map(cb => cb.value);
+    const subject    = document.getElementById('email-subject').value.trim();
+    const statusEl   = document.getElementById('email-status');
+    const btn        = document.getElementById('send-btn');
+
+    statusEl.textContent = '';
+    statusEl.className   = 'email-status';
+    btn.disabled         = true;
+    btn.textContent      = 'Sending…';
+
+    try {
+      const res  = await fetch('/api/send-email', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({recipients, subject})
+      });
+      const data = await res.json();
+      if (!res.ok || data.error) {
+        statusEl.textContent = '✗ ' + (data.error || 'Failed');
+        statusEl.className   = 'email-status err';
+      } else {
+        statusEl.textContent = `✓ Report sent to ${data.sent} recipient(s)`;
+        statusEl.className   = 'email-status ok';
+      }
+    } catch (err) {
+      statusEl.textContent = '✗ Network error: ' + err.message;
+      statusEl.className   = 'email-status err';
+    } finally {
+      btn.textContent = 'Send Report';
+      updateSendButton();
+    }
+  }
+
+  // ── Utilities ─────────────────────────────────────────────────────────────
+  function escHtml(s) {
+    if (!s) return '';
+    return String(s)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;');
+  }
+
+  // Restrict URLs to http/https to prevent javascript: XSS via report/JIRA links.
+  function safeUrl(u) {
+    return /^https?:\/\//i.test(u) ? u : '#';
+  }
+
+  // Wire recipient checkboxes after DOM load
+  document.addEventListener('DOMContentLoaded', () => {
+    document.querySelectorAll('.recipient-cb').forEach(cb => {
+      cb.addEventListener('change', updateSendButton);
+    });
+  });
+</script>
+
+</body>
+</html>
