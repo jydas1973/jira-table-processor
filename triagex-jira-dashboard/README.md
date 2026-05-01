@@ -35,7 +35,7 @@ These steps are for the Oracle self-hosted JIRA instance at `https://jira-sd.mc1
 4. Click **Create token**.
 5. Give it a name (e.g., `triagex-dashboard`) and optionally set an expiry date.
 6. Click **Create** and **copy the token immediately** — it is only shown once.
-7. Paste it as `JIRA_API_TOKEN=<token>` in `application/.env`.
+7. Paste it as `JIRA_API_TOKEN=<token>` in `triagex-jira-dashboard/.env`.
 
 > **Note:** If you cannot find Personal Access Tokens in your profile, contact your JIRA administrator — some self-hosted instances require administrator enablement of the PAT feature.
 
@@ -62,8 +62,8 @@ brew install uv
 **Set up and run:**
 
 ```bash
-# 1. Enter the application directory
-cd application
+# 1. Enter the project directory
+cd triagex-jira-dashboard
 
 # 2. Copy the environment template
 cp .env.template .env
@@ -85,8 +85,8 @@ uv run python backend/app.py
 ### Method 2 — pip (Standard)
 
 ```bash
-# 1. Enter the application directory
-cd application
+# 1. Enter the project directory
+cd triagex-jira-dashboard
 
 # 2. Copy the environment template
 cp .env.template .env
@@ -141,6 +141,33 @@ python backend/app.py --port 8080
 # Custom port + auto-open
 python backend/app.py --port 8080 --open
 ```
+
+---
+
+## Stopping the Server
+
+### Interactive terminal (both uv and pip)
+
+If the server is running in the foreground, press **Ctrl + C** in the terminal where it is running.
+
+### Background process — find and kill by port
+
+If you started the server in the background (e.g. with `&`) or cannot find the terminal, use the port number to locate and stop it:
+
+```bash
+# macOS / Linux — find the PID listening on port 5000 (or your custom port)
+lsof -ti :5000 | xargs kill
+
+# If the process does not respond to a normal kill, force it:
+lsof -ti :5000 | xargs kill -9
+
+# Windows (Command Prompt / PowerShell) — find the PID
+netstat -ano | findstr :5000
+# Then kill it (replace <PID> with the number from the output above)
+taskkill /PID <PID> /F
+```
+
+> **Tip:** If you used `--port 8080` (or another custom port), replace `5000` with that port number in the commands above.
 
 ---
 

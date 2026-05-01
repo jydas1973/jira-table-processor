@@ -321,7 +321,7 @@ def analyze():
         return jsonify({'error': err}), 400
 
     if not JIRA_API_TOKEN:
-        return jsonify({'error': 'JIRA_API_TOKEN is not configured. Add it to application/.env'}), 500
+        return jsonify({'error': 'JIRA_API_TOKEN is not configured. Add it to triagex-jira-dashboard/.env'}), 500
 
     if from_date and to_date:
         base = strip_date_conditions(jql_input)
@@ -438,7 +438,7 @@ def main():
 
     if not JIRA_API_TOKEN:
         print('[TriageX] ERROR: JIRA_API_TOKEN is not configured.')
-        print('[TriageX]        Add JIRA_API_TOKEN=<your-token> to application/.env and retry.')
+        print('[TriageX]        Add JIRA_API_TOKEN=<your-token> to triagex-jira-dashboard/.env and retry.')
         sys.exit(1)
 
     if not _port_is_free(args.port):

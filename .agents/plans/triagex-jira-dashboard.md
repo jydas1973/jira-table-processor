@@ -5,11 +5,11 @@ patterns and task sanity before you start implementing.
 
 Pay special attention to:
 - The self-containment requirement: **no imports from the parent directory** (`../jira_table_analyze.py`).
-  The `application/` folder must be independently portable (tar-able and shareable).
+  The `triagex-jira-dashboard/` folder must be independently portable (tar-able and shareable).
 - The JQL date-stripping logic (Option A): strip `created >=` / `created <=` when dates are picked.
 - Flask's `template_folder` must point to `../frontend/templates` since `app.py` lives in `backend/`.
 - Two files already exist at the wrong location and **must be deleted first**:
-  `application/app.py` and `application/requirements.txt`.
+  `triagex-jira-dashboard/app.py` and `triagex-jira-dashboard/requirements.txt`.
 
 ---
 
@@ -33,10 +33,10 @@ JIRA JQL query, and instantly see:
    first 50 JIRA issues formatted as the existing HTML report via `POST /api/send-email`.
    Uses the internal Oracle SMTP relay (port 25, no TLS, no auth) defined in `EMAIL_SMTP_SERVER`.
 
-The application is a self-contained folder (`application/`) with `backend/` and `frontend/`
+The application is a self-contained folder (`triagex-jira-dashboard/`) with `backend/` and `frontend/`
 sub-trees, a comprehensive `README.md`, and a `.env.template`. Running is as simple as:
 ```
-cd application/backend && pip install -r requirements.txt && python app.py
+cd triagex-jira-dashboard/backend && pip install -r requirements.txt && python app.py
 ```
 
 ---
@@ -63,7 +63,7 @@ time without re-running the script and re-opening the file.
 Wrap the JIRA client logic in a Flask HTTP server. A single-page HTML dashboard communicates
 with the server via a `POST /api/analyze` JSON API. All rendering, pagination, and charting
 happen in the browser with vanilla JS and Chart.js (CDN, no build toolchain). The entire
-`application/` folder is portable — zip or tar it and hand it to anyone.
+`triagex-jira-dashboard/` folder is portable — zip or tar it and hand it to anyone.
 
 ---
 
@@ -71,7 +71,7 @@ happen in the browser with vanilla JS and Chart.js (CDN, no build toolchain). Th
 
 **Feature Type**: New Capability
 **Estimated Complexity**: Medium
-**Primary Systems Affected**: New `application/` folder only; parent scripts untouched
+**Primary Systems Affected**: New `triagex-jira-dashboard/` folder only; parent scripts untouched
 **Dependencies**: `flask>=3.0.0`, `jira>=3.5.0`, `pandas>=2.0.0`, `python-dotenv>=1.0.0`,
   Chart.js 4.x via CDN (no npm); email uses Python stdlib only (`smtplib`, `email`)
 
@@ -116,13 +116,13 @@ happen in the browser with vanilla JS and Chart.js (CDN, no build toolchain). Th
 
 ### Files to DELETE before starting (created in error at wrong location)
 
-- `application/app.py`
-- `application/requirements.txt`
+- `triagex-jira-dashboard/app.py`
+- `triagex-jira-dashboard/requirements.txt`
 
 ### New Files to Create
 
 ```
-application/
+triagex-jira-dashboard/
 ├── README.md                              # Comprehensive setup + usage guide
 ├── .env.template                          # Credential template (committed)
 ├── backend/
@@ -134,8 +134,8 @@ application/
         └── dashboard.html                 # Full single-page dashboard
 ```
 
-Note: `application/templates/` already exists (created in error) — move/repurpose it as
-`application/frontend/templates/` or just create the new path; Flask will be pointed at the
+Note: `triagex-jira-dashboard/templates/` already exists (created in error) — move/repurpose it as
+`triagex-jira-dashboard/frontend/templates/` or just create the new path; Flask will be pointed at the
 right folder via `template_folder='../frontend/templates'` in `app.py`.
 
 ---
@@ -263,7 +263,7 @@ app = Flask(__name__, template_folder='../frontend/templates')
 
 ### .env Loading
 
-The `.env` file lives at `application/` level (one directory above `backend/`):
+The `.env` file lives at `triagex-jira-dashboard/` level (one directory above `backend/`):
 ```python
 load_dotenv(os.path.join(os.path.dirname(__file__), '..', '.env'))
 ```
@@ -443,16 +443,16 @@ add `EMAIL_*` vars to `.env.template`, add Email section to `README.md`.
 
 ---
 
-### TASK 1 — DELETE misplaced files from `application/` root
+### TASK 1 — DELETE misplaced files from `triagex-jira-dashboard/` root
 
-- **REMOVE**: `application/app.py` (created in error)
-- **REMOVE**: `application/requirements.txt` (created in error)
-- **VALIDATE**: `ls application/` — should show only `README.md`, `.env.template`,
+- **REMOVE**: `triagex-jira-dashboard/app.py` (created in error)
+- **REMOVE**: `triagex-jira-dashboard/requirements.txt` (created in error)
+- **VALIDATE**: `ls triagex-jira-dashboard/` — should show only `README.md`, `.env.template`,
   `backend/`, `frontend/`, `documind_dashboard.png`
 
 ---
 
-### TASK 2 — CREATE `application/backend/jira_analyzer.py`
+### TASK 2 — CREATE `triagex-jira-dashboard/backend/jira_analyzer.py`
 
 - **IMPLEMENT**: Self-contained JIRA client. Copy exactly (no modification) the following
   methods from `jira_table_analyze.py`:
@@ -472,11 +472,11 @@ add `EMAIL_*` vars to `.env.template`, add Email section to `README.md`.
 - **GOTCHA**: `self.df` and `self.status_df` instance attributes are set inside methods.
   Keep them — the methods mutate `self`. Do NOT add `save_to_csv`, `print_table`,
   `create_html_report`, `send_email_report`, or `run` — those are not needed.
-- **VALIDATE**: `cd application/backend && python -c "from jira_analyzer import JiraAnalyzer; print('OK')"`
+- **VALIDATE**: `cd triagex-jira-dashboard/backend && python -c "from jira_analyzer import JiraAnalyzer; print('OK')"`
 
 ---
 
-### TASK 3 — CREATE `application/backend/requirements.txt`
+### TASK 3 — CREATE `triagex-jira-dashboard/backend/requirements.txt`
 
 ```
 flask>=3.0.0
@@ -485,11 +485,11 @@ jira>=3.5.0
 pandas>=2.0.0
 ```
 
-- **VALIDATE**: `pip install -r application/backend/requirements.txt --dry-run` (no errors)
+- **VALIDATE**: `pip install -r triagex-jira-dashboard/backend/requirements.txt --dry-run` (no errors)
 
 ---
 
-### TASK 4 — CREATE `application/backend/app.py`
+### TASK 4 — CREATE `triagex-jira-dashboard/backend/app.py`
 
 **Structure** (implement in this order within the file):
 
@@ -558,7 +558,7 @@ def analyze():
 
     # Validate token
     if not JIRA_API_TOKEN:
-        return jsonify({'error': 'JIRA_API_TOKEN is not configured. Add it to application/.env'}), 500
+        return jsonify({'error': 'JIRA_API_TOKEN is not configured. Add it to triagex-jira-dashboard/.env'}), 500
 
     # Build final JQL
     if from_date and to_date:
@@ -743,12 +743,12 @@ def _send_via_smtp(html_body: str, recipients: list, subject: str):
 - **GOTCHA**: `debug=False` in production. User can set `FLASK_DEBUG=1` env var if needed.
 - **GOTCHA**: `_last_status_df` is module-level (shared state). Acceptable for a single-user
   dashboard; document as known limitation in README.
-- **VALIDATE**: `cd application/backend && python app.py --help` — prints usage with `--open` and `--port`.
-- **VALIDATE**: `cd application/backend && python -c "from app import app; print('import OK')"`
+- **VALIDATE**: `cd triagex-jira-dashboard/backend && python app.py --help` — prints usage with `--open` and `--port`.
+- **VALIDATE**: `cd triagex-jira-dashboard/backend && python -c "from app import app; print('import OK')"`
 
 ---
 
-### TASK 5 — CREATE `application/frontend/templates/dashboard.html`
+### TASK 5 — CREATE `triagex-jira-dashboard/frontend/templates/dashboard.html`
 
 This is the largest task. Implement the entire file in one write. Structure:
 
@@ -810,7 +810,7 @@ This is the largest task. Implement the entire file in one write. Structure:
   <!-- 4. No-token warning (shown if has_token is False) -->
   {% if not has_token %}
   <div id="token-warning">
-    ⚠ JIRA_API_TOKEN is not set. Add it to application/.env and restart.
+    ⚠ JIRA_API_TOKEN is not set. Add it to triagex-jira-dashboard/.env and restart.
   </div>
   {% endif %}
 
@@ -1020,7 +1020,7 @@ new Chart(ctx, {
 
 ---
 
-### TASK 6 — CREATE `application/.env.template`
+### TASK 6 — CREATE `triagex-jira-dashboard/.env.template`
 
 ```
 # TriageX JIRA Dashboard — Environment Configuration
@@ -1059,11 +1059,11 @@ EMAIL_TO=alice@oracle.com,bob@oracle.com,carol@oracle.com
 EMAIL_SUBJECT=TriageX JIRA Analysis Report
 ```
 
-- **VALIDATE**: `diff application/.env.template application/.env.template` — no stray characters.
+- **VALIDATE**: `diff triagex-jira-dashboard/.env.template triagex-jira-dashboard/.env.template` — no stray characters.
 
 ---
 
-### TASK 7 — CREATE `application/README.md`
+### TASK 7 — CREATE `triagex-jira-dashboard/README.md`
 
 The README must cover ALL of the following sections (in order):
 
@@ -1094,15 +1094,15 @@ Include exact steps for Oracle internal JIRA (self-hosted, NOT Atlassian Cloud):
 4. Click **Create token**.
 5. Give it a name (e.g., `triagex-dashboard`) and optionally set an expiry date.
 6. Click **Create** and **copy the token immediately** — it is only shown once.
-7. Paste it as `JIRA_API_TOKEN=<token>` in `application/.env`.
+7. Paste it as `JIRA_API_TOKEN=<token>` in `triagex-jira-dashboard/.env`.
 
 Include a note: "If you cannot find Personal Access Tokens, contact your JIRA administrator —
 some self-hosted instances require administrator enablement of the PAT feature."
 
 **7e. Installation & Setup** (step-by-step)
 ```bash
-# 1. Enter the application directory
-cd application
+# 1. Enter the project directory
+cd triagex-jira-dashboard
 
 # 2. Copy the environment template
 cp .env.template .env
@@ -1253,20 +1253,20 @@ is manual run-based).
 
 ### Level 1: Import Check
 ```bash
-cd application/backend
+cd triagex-jira-dashboard/backend
 python -c "from jira_analyzer import JiraAnalyzer; print('jira_analyzer OK')"
 python -c "from app import app; print('app OK')"
 ```
 
 ### Level 2: CLI Help
 ```bash
-python application/backend/app.py --help
+python triagex-jira-dashboard/backend/app.py --help
 ```
 Expected output: shows `--open` and `--port` flags with descriptions.
 
 ### Level 3: Server Start (no token required)
 ```bash
-cd application/backend
+cd triagex-jira-dashboard/backend
 python app.py &
 sleep 2
 curl -s http://localhost:5000 | grep -q 'TriageX' && echo 'HTML OK' || echo 'FAIL'
@@ -1279,7 +1279,7 @@ kill %1
 
 ### Level 4: JQL Validation Endpoint
 ```bash
-cd application/backend
+cd triagex-jira-dashboard/backend
 python app.py &
 sleep 2
 # Empty JQL
@@ -1298,7 +1298,7 @@ kill %1
 
 ### Level 5: Email Endpoint (no token required for the 400 check)
 ```bash
-cd application/backend
+cd triagex-jira-dashboard/backend
 python app.py &
 sleep 2
 # Before any analysis — expect 400
@@ -1322,7 +1322,7 @@ Open `http://localhost:5000` and run through all 20 manual test steps above.
 
 ## ACCEPTANCE CRITERIA
 
-- [x] `application/` folder is self-contained: no imports from parent directory
+- [x] `triagex-jira-dashboard/` folder is self-contained: no imports from parent directory
 - [x] `python backend/app.py` starts without error
 - [x] `python backend/app.py --open` auto-opens browser
 - [x] `python backend/app.py --port 8080` runs on port 8080
@@ -1342,9 +1342,9 @@ Open `http://localhost:5000` and run through all 20 manual test steps above.
 - [x] Weekly chart: < 2 buckets → chart card hidden, compact message shown, table starts immediately
 - [x] Log Files column: first 2 shown, rest expandable under "+N more"
 - [x] JIRA ID links open in a new tab
-- [x] `application/.env.template` contains all required vars with comments (incl. EMAIL_*)
-- [x] `application/README.md` covers all 11 sections including PAT generation and email steps
-- [x] Tar `application/` → extract on a clean machine → README instructions work end-to-end
+- [x] `triagex-jira-dashboard/.env.template` contains all required vars with comments (incl. EMAIL_*)
+- [x] `triagex-jira-dashboard/README.md` covers all 11 sections including PAT generation and email steps
+- [x] Tar `triagex-jira-dashboard/` → extract on a clean machine → README instructions work end-to-end
 - [x] "Email This Report" panel is closed by default; expands on click
 - [x] Recipient list is populated from `EMAIL_TO` env var (one checkbox per address)
 - [x] "Select All" checks all recipients; "Clear" unchecks all
@@ -1356,7 +1356,7 @@ Open `http://localhost:5000` and run through all 20 manual test steps above.
 - [x] Log Files column in email shows count badge, not full filenames
 - [x] Missing `JIRA_API_TOKEN` → server exits before binding with a clear error message
 - [x] Port already in use → server exits with actionable kill command before binding
-- [x] `application/pyproject.toml` + `uv.lock` allow `uv sync && uv run python backend/app.py`
+- [x] `triagex-jira-dashboard/pyproject.toml` + `uv.lock` allow `uv sync && uv run python backend/app.py`
 - [x] Report links and JIRA ticket links restricted to `https?://` (javascript: XSS blocked)
 - [x] `/api/send-email` recipients validated against `EMAIL_TO` allowlist (open-relay blocked)
 - [x] `from_date` / `to_date` validated as `YYYY-MM-DD` before JQL interpolation (injection blocked)
@@ -1370,15 +1370,15 @@ Open `http://localhost:5000` and run through all 20 manual test steps above.
 ## COMPLETION CHECKLIST
 
 ### Phase 1 — Initial Implementation
-- [x] TASK 1: Deleted `application/app.py` and `application/requirements.txt`
-- [x] TASK 2: `application/backend/jira_analyzer.py` created (5 methods, no parent imports)
-- [x] TASK 3: `application/backend/requirements.txt` created (4 deps)
-- [x] TASK 4: `application/backend/app.py` created (routes, JQL helpers, argparse, weekly stats,
+- [x] TASK 1: Deleted `triagex-jira-dashboard/app.py` and `triagex-jira-dashboard/requirements.txt`
+- [x] TASK 2: `triagex-jira-dashboard/backend/jira_analyzer.py` created (5 methods, no parent imports)
+- [x] TASK 3: `triagex-jira-dashboard/backend/requirements.txt` created (4 deps)
+- [x] TASK 4: `triagex-jira-dashboard/backend/app.py` created (routes, JQL helpers, argparse, weekly stats,
        `_last_status_df` state, `POST /api/send-email`, `_generate_email_html`, `_send_via_smtp`)
-- [x] TASK 5: `application/frontend/templates/dashboard.html` created (full dark dashboard +
+- [x] TASK 5: `triagex-jira-dashboard/frontend/templates/dashboard.html` created (full dark dashboard +
        email panel with recipient checkboxes, subject input, Send button, inline status)
-- [x] TASK 6: `application/.env.template` created (incl. all EMAIL_* vars with comments)
-- [x] TASK 7: `application/README.md` created (all 11 sections incl. email usage + troubleshooting)
+- [x] TASK 6: `triagex-jira-dashboard/.env.template` created (incl. all EMAIL_* vars with comments)
+- [x] TASK 7: `triagex-jira-dashboard/README.md` created (all 11 sections incl. email usage + troubleshooting)
 - [x] All Level 1–5 validation commands pass
 - [x] All 20 manual test steps pass
 
@@ -1394,9 +1394,9 @@ Open `http://localhost:5000` and run through all 20 manual test steps above.
 - [x] TASK 16: `{{ email_from | e }}` / `{{ email_smtp | e }}` — explicit Jinja2 escaping added
 
 ### Phase 3 — uv Support
-- [x] TASK 17: `application/pyproject.toml` created with 4 direct dependencies
-- [x] TASK 18: `application/uv.lock` generated (51 packages pinned)
-- [x] TASK 19: `application/README.md` updated — Method 1 (uv) / Method 2 (pip), uv troubleshooting rows
+- [x] TASK 17: `triagex-jira-dashboard/pyproject.toml` created with 4 direct dependencies
+- [x] TASK 18: `triagex-jira-dashboard/uv.lock` generated (51 packages pinned)
+- [x] TASK 19: `triagex-jira-dashboard/README.md` updated — Method 1 (uv) / Method 2 (pip), uv troubleshooting rows
 
 ### Phase 4 — Startup Robustness
 - [x] TASK 20: `main()` exits with clear error if `JIRA_API_TOKEN` is not set
@@ -1482,4 +1482,4 @@ and `pyproject.toml` list the same 4 direct dependencies.
 All patterns are directly extracted from the working, tested codebase. All 24 tasks have
 been implemented, validated with unit tests and live server smoke tests, and pushed to
 `origin/main`. Known limitations (module-level `_last_status_df` state, Chart.js CDN
-dependency) are documented in `application/README.md`.
+dependency) are documented in `triagex-jira-dashboard/README.md`.
