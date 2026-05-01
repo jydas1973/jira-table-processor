@@ -488,15 +488,20 @@
     </details>
 
     <!-- Weekly chart -->
-    <div class="chart-card">
+    <div class="chart-card" id="chart-card">
       <h2>Weekly Success Rate</h2>
       <div class="chart-wrap">
         <canvas id="weekly-chart"></canvas>
       </div>
-      <p id="chart-no-data" class="hidden muted" style="margin-top:12px;text-align:center;">
-        Not enough date range for weekly breakdown.
-      </p>
     </div>
+
+    <!-- Shown instead of the chart when there are fewer than 2 weekly buckets -->
+    <p id="chart-no-data" class="hidden" style="
+        color:var(--text-muted);font-size:13px;text-align:center;
+        margin:0 0 8px;padding:10px 0;">
+      &#9888; Not enough data to plot a weekly trend &mdash;
+      select a date range spanning at least 2 weeks to see the chart.
+    </p>
 
     <!-- Table section -->
     <div class="table-section">
@@ -632,18 +637,19 @@
 
   // ── Chart ─────────────────────────────────────────────────────────────────
   function renderChart(weeklyData) {
-    const canvas   = document.getElementById('weekly-chart');
-    const noData   = document.getElementById('chart-no-data');
+    const card   = document.getElementById('chart-card');
+    const noData = document.getElementById('chart-no-data');
+    const canvas = document.getElementById('weekly-chart');
 
     if (chartInstance) { chartInstance.destroy(); chartInstance = null; }
 
     if (!weeklyData || weeklyData.length < 2) {
-      canvas.classList.add('hidden');
+      card.classList.add('hidden');
       noData.classList.remove('hidden');
       return;
     }
 
-    canvas.classList.remove('hidden');
+    card.classList.remove('hidden');
     noData.classList.add('hidden');
 
     const ctx = canvas.getContext('2d');

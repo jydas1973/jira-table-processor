@@ -50,7 +50,8 @@ def validate_jql(jql: str):
     return None
 
 
-def compute_weekly_stats(status_df: pd.DataFrame) -> list:
+def compute_weekly_stats(status_df: pd.DataFrame,
+                         from_date: str = '', to_date: str = '') -> list:
     if status_df.empty:
         return []
     df = status_df.copy()
@@ -58,28 +59,56 @@ def compute_weekly_stats(status_df: pd.DataFrame) -> list:
     df = df.dropna(subset=['_date'])
     if df.empty:
         return []
+
+    if from_date and to_date:
+        # Fixed 7-day buckets anchored to from_date so the chart always shows
+        # evenly spaced intervals regardless of where tickets fall.
+        range_start = datetime.strptime(from_date, '%Y-%m-%d')
+        range_end   = datetime.strptime(to_date,   '%Y-%m-%d')
+        weekly = []
+        bucket_start = range_start
+        while bucket_start <= range_end:
+            bucket_end     = min(bucket_start + timedelta(days=6), range_end)
+            mask           = ((df['_date'].dt.date >= bucket_start.date()) &
+                              (df['_date'].dt.date <= bucket_end.date()))
+            group          = df[mask]
+            total          = len(group)
+            success        = int((group['Status'] == 'Success').sum()) if total > 0 else 0
+            rate           = round(success / total * 100, 1) if total > 0 else 0.0
+            label          = f'{bucket_start.strftime("%b %d")}–{bucket_end.strftime("%b %d")}'
+            weekly.append({
+                'label'       : label,
+                'success_rate': rate,
+                'total'       : total,
+                'success'     : success,
+                'failed'      : total - success,
+            })
+            bucket_start += timedelta(days=7)
+        return weekly
+
+    # No explicit date range — fall back to ISO calendar weeks.
     iso = df['_date'].dt.isocalendar()
     df['_year'] = iso.year.astype(int)
     df['_week'] = iso.week.astype(int)
     weekly = []
     for (year, week), group in df.groupby(['_year', '_week']):
-        total = len(group)
+        total   = len(group)
         success = int((group['Status'] == 'Success').sum())
-        rate = round(success / total * 100, 1) if total > 0 else 0.0
+        rate    = round(success / total * 100, 1) if total > 0 else 0.0
         try:
             week_start = datetime.strptime(f'{year}-W{week:02d}-1', '%G-W%V-%u')
-            week_end = week_start + timedelta(days=6)
-            label = f'W{week} ({week_start.strftime("%b %d")}–{week_end.strftime("%b %d")})'
+            week_end   = week_start + timedelta(days=6)
+            label      = f'W{week} ({week_start.strftime("%b %d")}–{week_end.strftime("%b %d")})'
         except ValueError:
             label = f'Week {week}'
         weekly.append({
-            'label': label,
-            'iso_year': int(year),
-            'iso_week': int(week),
+            'label'       : label,
+            'iso_year'    : int(year),
+            'iso_week'    : int(week),
             'success_rate': rate,
-            'total': total,
-            'success': success,
-            'failed': total - success,
+            'total'       : total,
+            'success'     : success,
+            'failed'      : total - success,
         })
     return sorted(weekly, key=lambda x: (x['iso_year'], x['iso_week']))
 
@@ -349,7 +378,7 @@ def analyze():
             'summary'    : {'total': total, 'success': success_count,
                             'failed': failed_count, 'success_pct': success_pct},
             'issues'     : issues,
-            'weekly_data': compute_weekly_stats(status_df),
+            'weekly_data': compute_weekly_stats(status_df, from_date, to_date),
             'jql'        : jql,
         }
         if enrichment_warning:
