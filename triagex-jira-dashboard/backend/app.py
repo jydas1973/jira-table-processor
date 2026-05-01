@@ -432,8 +432,8 @@ def main():
     parser.add_argument('--open', action='store_true',
                         help='Open the dashboard in your default browser after the server starts')
     parser.add_argument('--port', type=int,
-                        default=int(os.getenv('DASHBOARD_PORT', 5000)),
-                        help='Port to run the server on (default: 5000)')
+                        default=int(os.getenv('DASHBOARD_PORT', 5001)),
+                        help='Port to run the server on (default: 5001)')
     args = parser.parse_args()
 
     if not JIRA_API_TOKEN:

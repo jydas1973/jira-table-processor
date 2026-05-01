@@ -274,8 +274,8 @@ load_dotenv(os.path.join(os.path.dirname(__file__), '..', '.env'))
 parser = argparse.ArgumentParser(description='TriageX JIRA Dashboard')
 parser.add_argument('--open', action='store_true',
                     help='Open the dashboard in your default browser after the server starts')
-parser.add_argument('--port', type=int, default=int(os.getenv('DASHBOARD_PORT', 5000)),
-                    help='Port to run the server on (default: 5000)')
+parser.add_argument('--port', type=int, default=int(os.getenv('DASHBOARD_PORT', 5001)),
+                    help='Port to run the server on (default: 5001)')
 args = parser.parse_args()
 ```
 
@@ -626,8 +626,8 @@ def main():
     parser.add_argument('--open', action='store_true',
                         help='Open the dashboard in your default browser after the server starts')
     parser.add_argument('--port', type=int,
-                        default=int(os.getenv('DASHBOARD_PORT', 5000)),
-                        help='Port to run the server on (default: 5000)')
+                        default=int(os.getenv('DASHBOARD_PORT', 5001)),
+                        help='Port to run the server on (default: 5001)')
     args = parser.parse_args()
 
     if args.open:
@@ -1015,7 +1015,7 @@ new Chart(ctx, {
 - **GOTCHA**: If `weeklyData` has fewer than 2 points, hide the canvas and show `#chart-no-data`.
 - **GOTCHA**: The JQL textarea is pre-populated via `{{ default_jql }}` Jinja2 — must be
   HTML-escaped in the template with `{{ default_jql | e }}`.
-- **VALIDATE**: Open browser at `http://localhost:5000` — page loads with no JS console errors.
+- **VALIDATE**: Open browser at `http://localhost:5001` — page loads with no JS console errors.
 - **VALIDATE**: Click "Last 7d" — both date inputs are populated with today's date and 7 days ago.
 
 ---
@@ -1041,8 +1041,8 @@ JIRA_API_TOKEN=your_personal_api_token_here
 JQL_QUERY=project in (DBAASOPS,EXACSOPS,EXACCOPS) AND labels = oneview_triagex_inprogress AND created >= -3d
 
 # ── Dashboard Settings ────────────────────────────────────────────────────────
-# Port for the web server (default: 5000)
-DASHBOARD_PORT=5000
+# Port for the web server (default: 5001)
+DASHBOARD_PORT=5001
 
 # ── Email Configuration ───────────────────────────────────────────────────────
 # Internal SMTP relay — plain SMTP on port 25, no TLS, no authentication required.
@@ -1124,7 +1124,7 @@ python backend/app.py
 
 **7f. Running the server**
 ```bash
-# Start server only (open browser manually at http://localhost:5000)
+# Start server only (open browser manually at http://localhost:5001)
 python backend/app.py
 
 # Start server AND auto-open browser
@@ -1138,7 +1138,7 @@ python backend/app.py --port 8080 --open
 ```
 
 **7g. Using the dashboard** (step-by-step walkthrough)
-1. Open `http://localhost:5000` in your browser.
+1. Open `http://localhost:5001` in your browser.
 2. Use the **date shortcuts** (Last 7d / 14d / 30d / 90d) or pick custom **From / To** dates
    using the calendar pickers.
 3. Click **Advanced Options** to inspect or modify the JQL query, change Max Results, or
@@ -1188,7 +1188,7 @@ corporate network or VPN. No authentication is required.
 | `Failed to connect to JIRA` | Wrong token or no network access | Verify token; check VPN |
 | `JQL query appears invalid` | Empty or malformed JQL | Check the JQL in Advanced Options |
 | `No issues found` | JQL returns 0 results in date range | Widen date range or adjust JQL |
-| Port already in use | Another process on port 5000 | Use `--port 8080` |
+| Port already in use | Another process on port 5001 | Use `--port 8080` |
 | Chart shows "not enough data" | All issues fall within a single calendar week | Widen date range |
 | `No analysis results available` | Send clicked before Analyze | Run Analyze first |
 | `EMAIL_SMTP_SERVER is not configured` | Email vars missing from .env | Add `EMAIL_*` vars to `.env` |
@@ -1208,7 +1208,7 @@ is manual run-based).
 
 1. `python backend/app.py` → server starts without errors.
 2. `python backend/app.py --help` → prints correct usage.
-3. Open `http://localhost:5000` → page loads; no JS console errors.
+3. Open `http://localhost:5001` → page loads; no JS console errors.
 4. Click "Last 7d" → both date inputs populate correctly.
 5. Click Analyze with no JIRA_API_TOKEN → error banner appears with clear message.
 6. Click Analyze with valid token + valid date range → spinner shows, then results appear:
@@ -1221,7 +1221,7 @@ is manual run-based).
 9. Clear both dates → Analyze → JQL is sent as-is (no date injection).
 10. Fill only one date → Analyze → error "Please fill both From and To dates" shown.
 11. Clear JQL → Analyze → error "JQL query cannot be empty" shown.
-12. `python backend/app.py --open` → browser auto-opens at `http://localhost:5000`.
+12. `python backend/app.py --open` → browser auto-opens at `http://localhost:5001`.
 13. `python backend/app.py --port 8080` → server starts on port 8080.
 14. After a successful analysis: click **Email This Report** → panel expands showing all
     addresses from `EMAIL_TO` as unchecked checkboxes.
@@ -1269,8 +1269,8 @@ Expected output: shows `--open` and `--port` flags with descriptions.
 cd triagex-jira-dashboard/backend
 python app.py &
 sleep 2
-curl -s http://localhost:5000 | grep -q 'TriageX' && echo 'HTML OK' || echo 'FAIL'
-curl -s -X POST http://localhost:5000/api/analyze \
+curl -s http://localhost:5001 | grep -q 'TriageX' && echo 'HTML OK' || echo 'FAIL'
+curl -s -X POST http://localhost:5001/api/analyze \
      -H 'Content-Type: application/json' \
      -d '{}' | python -m json.tool
 # Expected: {"error": "JIRA_API_TOKEN is not configured..."}
@@ -1283,13 +1283,13 @@ cd triagex-jira-dashboard/backend
 python app.py &
 sleep 2
 # Empty JQL
-curl -s -X POST http://localhost:5000/api/analyze \
+curl -s -X POST http://localhost:5001/api/analyze \
      -H 'Content-Type: application/json' \
      -d '{"jql":"","from_date":"2026-04-01","to_date":"2026-04-30"}' | python -m json.tool
 # Expected: {"error": "JQL query cannot be empty."}
 
 # One date only
-curl -s -X POST http://localhost:5000/api/analyze \
+curl -s -X POST http://localhost:5001/api/analyze \
      -H 'Content-Type: application/json' \
      -d '{"jql":"project = TEST","from_date":"2026-04-01"}' | python -m json.tool
 # Expected: {"error": "Please fill both From and To dates, or leave both empty."}
@@ -1302,13 +1302,13 @@ cd triagex-jira-dashboard/backend
 python app.py &
 sleep 2
 # Before any analysis — expect 400
-curl -s -X POST http://localhost:5000/api/send-email \
+curl -s -X POST http://localhost:5001/api/send-email \
      -H 'Content-Type: application/json' \
      -d '{"recipients":["a@oracle.com"],"subject":"Test"}' | python -m json.tool
 # Expected: {"error": "No analysis results available. Please run Analyze first."}
 
 # No recipients — expect 400
-curl -s -X POST http://localhost:5000/api/send-email \
+curl -s -X POST http://localhost:5001/api/send-email \
      -H 'Content-Type: application/json' \
      -d '{"recipients":[],"subject":"Test"}' | python -m json.tool
 # Expected: {"error": "No recipients selected."}
@@ -1316,7 +1316,7 @@ kill %1
 ```
 
 ### Level 6: Browser Manual Test
-Open `http://localhost:5000` and run through all 20 manual test steps above.
+Open `http://localhost:5001` and run through all 20 manual test steps above.
 
 ---
 

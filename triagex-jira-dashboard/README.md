@@ -148,7 +148,7 @@ python backend/app.py
 ### With uv
 
 ```bash
-# Start server only (open browser manually at http://localhost:5000)
+# Start server only (open browser manually at http://localhost:5001)
 uv run python backend/app.py
 
 # Start server AND auto-open browser
@@ -190,25 +190,25 @@ If the server is running in the foreground, press **Ctrl + C** in the terminal w
 If you started the server in the background (e.g. with `&`) or cannot find the terminal, use the port number to locate and stop it:
 
 ```bash
-# macOS / Linux — find the PID listening on port 5000 (or your custom port)
-lsof -ti :5000 | xargs kill
+# macOS / Linux — find the PID listening on port 5001 (or your custom port)
+lsof -ti :5001 | xargs kill
 
 # If the process does not respond to a normal kill, force it:
-lsof -ti :5000 | xargs kill -9
+lsof -ti :5001 | xargs kill -9
 
 # Windows (Command Prompt / PowerShell) — find the PID
-netstat -ano | findstr :5000
+netstat -ano | findstr :5001
 # Then kill it (replace <PID> with the number from the output above)
 taskkill /PID <PID> /F
 ```
 
-> **Tip:** If you used `--port 8080` (or another custom port), replace `5000` with that port number in the commands above.
+> **Tip:** If you used a custom port, replace `5001` with that port number in the commands above.
 
 ---
 
 ## Using the Dashboard
 
-1. Open `http://localhost:5000` in your browser.
+1. Open `http://localhost:5001` in your browser.
 2. Use the **date shortcuts** (Last 7d / 14d / 30d / 90d) or pick custom **From / To** dates using the calendar pickers.
 3. Click **Advanced Options** to inspect or modify the JQL query, change Max Results, or enable **Include Report Links** (fetches VoxioTriageX report URLs — slower).
 4. Click **Analyze**. A loading spinner appears while JIRA is queried.
@@ -253,7 +253,7 @@ taskkill /PID <PID> /F
 | `JIRA_URL` | No | `https://jira-sd.mc1.oracleiaas.com` | JIRA instance URL |
 | `JIRA_API_TOKEN` | **Yes** | — | Personal JIRA API token |
 | `JQL_QUERY` | No | See template | Default JQL shown in the editor |
-| `DASHBOARD_PORT` | No | `5000` | Port for the web server |
+| `DASHBOARD_PORT` | No | `5001` | Port for the web server |
 | `EMAIL_SMTP_SERVER` | No* | — | Internal SMTP relay hostname |
 | `EMAIL_FROM` | No* | — | Sender email address |
 | `EMAIL_TO` | No* | — | Comma-separated recipient pool |
@@ -271,7 +271,7 @@ taskkill /PID <PID> /F
 | `Failed to connect to JIRA` | Wrong token or no network access | Verify token; check VPN |
 | `JQL query appears invalid` | Empty or malformed JQL | Check the JQL in Advanced Options |
 | `No issues found` | JQL returns 0 results in date range | Widen date range or adjust JQL |
-| Port already in use | Another process on port 5000 | Use `--port 8080` |
+| Port already in use | Another process on port 5001 | Use `--port 8080` |
 | Chart shows "not enough data" | All issues fall within a single calendar week | Widen date range |
 | `No analysis results available` | Send clicked before Analyze | Run Analyze first |
 | `EMAIL_SMTP_SERVER is not configured` | Email vars missing from .env | Add `EMAIL_*` vars to `.env` |
