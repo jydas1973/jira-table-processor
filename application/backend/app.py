@@ -4,6 +4,7 @@ import os
 import re
 import html as _html
 import argparse
+import socket
 import traceback
 from datetime import datetime, timedelta
 
@@ -392,6 +393,11 @@ def send_email():
         return jsonify({'error': str(exc)}), 500
 
 
+def _port_is_free(port: int) -> bool:
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        return s.connect_ex(('127.0.0.1', port)) != 0
+
+
 def main():
     parser = argparse.ArgumentParser(description='TriageX JIRA Dashboard')
     parser.add_argument('--open', action='store_true',
@@ -401,6 +407,16 @@ def main():
                         help='Port to run the server on (default: 5000)')
     args = parser.parse_args()
 
+    if not JIRA_API_TOKEN:
+        print('[TriageX] ERROR: JIRA_API_TOKEN is not configured.')
+        print('[TriageX]        Add JIRA_API_TOKEN=<your-token> to application/.env and retry.')
+        sys.exit(1)
+
+    if not _port_is_free(args.port):
+        print(f'[TriageX] ERROR: Port {args.port} is already in use.')
+        print(f'[TriageX]        Free it with: lsof -ti:{args.port} | xargs kill')
+        sys.exit(1)
+
     if args.open:
         import threading
         import webbrowser
@@ -408,7 +424,7 @@ def main():
 
     print(f'[TriageX] Dashboard → http://localhost:{args.port}')
     print(f'[TriageX] JIRA      → {JIRA_URL}')
-    print(f'[TriageX] Token     → {"configured ✓" if JIRA_API_TOKEN else "MISSING — add JIRA_API_TOKEN to .env"}')
+    print(f'[TriageX] Token     → configured ✓')
     app.run(host='0.0.0.0', port=args.port, debug=False)
 
 
