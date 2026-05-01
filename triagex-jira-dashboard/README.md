@@ -41,6 +41,41 @@ These steps are for the Oracle self-hosted JIRA instance at `https://jira-sd.mc1
 
 ---
 
+## Quick Start — Up and Running in One Command
+
+The fastest way to launch the dashboard. The `start.sh` script handles everything automatically — no manual dependency installation or venv setup required.
+
+**The only prerequisite is Python 3.8+** (`python3 --version`). Everything else is taken care of.
+
+```bash
+# 1. Enter the project directory
+cd triagex-jira-dashboard
+
+# 2. Add your JIRA API token to .env
+#    (the script creates .env from .env.template on first run — just fill in your token)
+#    JIRA_API_TOKEN=your_personal_api_token_here
+
+# 3. Start the dashboard
+./start.sh
+```
+
+That's it. The script will:
+- Create a `.env` file from the template if one does not exist
+- Detect whether `uv`, an existing `.venv`, or a `venv` is available
+- **If none are found**: automatically create a `.venv` and install all dependencies
+- Start the server in the background
+- Wait until it is ready, then open it in your browser
+
+**To stop the dashboard:**
+
+```bash
+./stop.sh
+```
+
+> **Note:** After the first run the `.env` file is created for you, but the server cannot connect to JIRA until you add your `JIRA_API_TOKEN`. See [How to Generate a JIRA API Token](#how-to-generate-a-jira-api-token) above.
+
+---
+
 ## Installation & Setup
 
 Two installation methods are supported: **uv** (recommended — fast, no manual venv management) and **pip** (standard).
