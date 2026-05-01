@@ -19,7 +19,10 @@ A self-contained Flask web dashboard that lets an on-call engineer pick a date r
 JIRA JQL query, and instantly see:
 
 1. **Summary cards** — Total Triaged, Successful, Success Rate (%)
-2. **Weekly success rate line chart** — Chart.js, X = week labels, Y = 0–100 %
+2. **Weekly success rate line chart** — Chart.js, X = fixed 7-day bucket labels anchored to
+   `from_date` (e.g. `Apr 01–07`, `Apr 08–14`), Y = 0–100 %. Empty weeks are plotted at 0%.
+   When fewer than 2 buckets exist the chart is hidden entirely and a compact message is shown
+   in its place so the issue table starts immediately below.
 3. **Paginated issue table** — JIRA ID (clickable), Status badge, Date Created, Report link,
    Log Files; configurable rows-per-page (10 / 25 / 50 / 100, max 100)
 4. **Optional Report Links** — an "Include Report Links" checkbox fetches VoxioTriageX URLs and
@@ -185,8 +188,19 @@ def validate_jql(jql: str) -> str | None:
 
 ### Weekly Stats Computation
 
+`compute_weekly_stats()` accepts optional `from_date` / `to_date` strings (YYYY-MM-DD).
+
+**When both dates are provided** (the common dashboard case): divide the range into fixed
+7-day buckets anchored to `from_date`. Every bucket is always emitted — weeks with no tickets
+appear with `total=0, success_rate=0.0` so the chart line is complete. The last bucket is
+clipped to `to_date` when the range does not divide evenly.
+
+**When no dates are provided** (JQL sent as-is): fall back to ISO calendar week grouping so
+the chart still renders meaningfully.
+
 ```python
-def compute_weekly_stats(status_df: pd.DataFrame) -> list:
+def compute_weekly_stats(status_df: pd.DataFrame,
+                         from_date: str = '', to_date: str = '') -> list:
     if status_df.empty:
         return []
     df = status_df.copy()
@@ -194,30 +208,50 @@ def compute_weekly_stats(status_df: pd.DataFrame) -> list:
     df = df.dropna(subset=['_date'])
     if df.empty:
         return []
+
+    if from_date and to_date:
+        range_start = datetime.strptime(from_date, '%Y-%m-%d')
+        range_end   = datetime.strptime(to_date,   '%Y-%m-%d')
+        weekly = []
+        bucket_start = range_start
+        while bucket_start <= range_end:
+            bucket_end = min(bucket_start + timedelta(days=6), range_end)
+            mask       = ((df['_date'].dt.date >= bucket_start.date()) &
+                          (df['_date'].dt.date <= bucket_end.date()))
+            group      = df[mask]
+            total      = len(group)
+            success    = int((group['Status'] == 'Success').sum()) if total > 0 else 0
+            rate       = round(success / total * 100, 1) if total > 0 else 0.0
+            label      = f'{bucket_start.strftime("%b %d")}–{bucket_end.strftime("%b %d")}'
+            weekly.append({'label': label, 'success_rate': rate,
+                           'total': total, 'success': success, 'failed': total - success})
+            bucket_start += timedelta(days=7)
+        return weekly
+
+    # No explicit date range — ISO calendar week fallback
     iso = df['_date'].dt.isocalendar()
     df['_year'] = iso.year.astype(int)
     df['_week'] = iso.week.astype(int)
     weekly = []
     for (year, week), group in df.groupby(['_year', '_week']):
-        total = len(group)
+        total   = len(group)
         success = int((group['Status'] == 'Success').sum())
-        rate = round(success / total * 100, 1) if total > 0 else 0.0
+        rate    = round(success / total * 100, 1) if total > 0 else 0.0
         try:
             week_start = datetime.strptime(f'{year}-W{week:02d}-1', '%G-W%V-%u')
-            week_end = week_start + timedelta(days=6)
-            label = f'W{week} ({week_start.strftime("%b %d")}–{week_end.strftime("%b %d")})'
+            week_end   = week_start + timedelta(days=6)
+            label      = f'W{week} ({week_start.strftime("%b %d")}–{week_end.strftime("%b %d")})'
         except ValueError:
             label = f'Week {week}'
-        weekly.append({
-            'label': label,
-            'iso_year': int(year),
-            'iso_week': int(week),
-            'success_rate': rate,
-            'total': total,
-            'success': success,
-            'failed': total - success,
-        })
+        weekly.append({'label': label, 'iso_year': int(year), 'iso_week': int(week),
+                       'success_rate': rate, 'total': total,
+                       'success': success, 'failed': total - success})
     return sorted(weekly, key=lambda x: (x['iso_year'], x['iso_week']))
+```
+
+Pass dates through from the route:
+```python
+'weekly_data': compute_weekly_stats(status_df, from_date, to_date),
 ```
 
 ### Flask Template Folder
@@ -1288,53 +1322,92 @@ Open `http://localhost:5000` and run through all 20 manual test steps above.
 
 ## ACCEPTANCE CRITERIA
 
-- [ ] `application/` folder is self-contained: no imports from parent directory
-- [ ] `python backend/app.py` starts without error
-- [ ] `python backend/app.py --open` auto-opens browser
-- [ ] `python backend/app.py --port 8080` runs on port 8080
-- [ ] Dashboard loads at `http://localhost:PORT` with no JS console errors
-- [ ] Date shortcuts (Last 7d / 14d / 30d / 90d) populate date pickers correctly
-- [ ] Analyze with valid credentials produces summary cards, chart, and table
-- [ ] Table shows both Success and Failed rows
-- [ ] Rows-per-page dropdown (10 / 25 / 50 / 100) works; pagination navigates correctly
-- [ ] "Include Report Links" unchecked by default; when checked, Report column is populated
-- [ ] JQL is editable; default is pre-populated from `.env` `JQL_QUERY`
-- [ ] Empty JQL → inline error before JIRA is called
-- [ ] One date filled, other empty → error "Please fill both From and To dates..."
-- [ ] No dates → JQL sent as-is (no date injection)
-- [ ] Both dates filled → date conditions stripped from JQL, picker values appended
-- [ ] Weekly chart: Y-axis = 0–100 %, X-axis = week labels, tooltip shows count
-- [ ] Log Files column: first 2 shown, rest expandable under "+N more"
-- [ ] JIRA ID links open in a new tab
-- [ ] `application/.env.template` contains all required vars with comments (incl. EMAIL_*)
-- [ ] `application/README.md` covers all 11 sections including PAT generation and email steps
-- [ ] Tar `application/` → extract on a clean machine → README instructions work end-to-end
-- [ ] "Email This Report" panel is closed by default; expands on click
-- [ ] Recipient list is populated from `EMAIL_TO` env var (one checkbox per address)
-- [ ] "Select All" checks all recipients; "Clear" unchecks all
-- [ ] Send button is disabled when zero recipients are checked
-- [ ] Subject pre-filled from `EMAIL_SUBJECT`; date range auto-appended after analysis with dates
-- [ ] Clicking Send with ≥1 recipient POSTs to `/api/send-email`; success message shown inline
-- [ ] `/api/send-email` before any analysis → HTTP 400 "No analysis results available"
-- [ ] Email content matches `jira_status_report.html` format; capped at first 50 issues
-- [ ] Log Files column in email shows count badge, not full filenames
+- [x] `application/` folder is self-contained: no imports from parent directory
+- [x] `python backend/app.py` starts without error
+- [x] `python backend/app.py --open` auto-opens browser
+- [x] `python backend/app.py --port 8080` runs on port 8080
+- [x] Dashboard loads at `http://localhost:PORT` with no JS console errors
+- [x] Date shortcuts (Last 7d / 14d / 30d / 90d) populate date pickers correctly
+- [x] Analyze with valid credentials produces summary cards, chart, and table
+- [x] Table shows both Success and Failed rows
+- [x] Rows-per-page dropdown (10 / 25 / 50 / 100) works; pagination navigates correctly
+- [x] "Include Report Links" unchecked by default; when checked, Report column is populated
+- [x] JQL is editable; default is pre-populated from `.env` `JQL_QUERY`
+- [x] Empty JQL → inline error before JIRA is called
+- [x] One date filled, other empty → error "Please fill both From and To dates..."
+- [x] No dates → JQL sent as-is (no date injection)
+- [x] Both dates filled → date conditions stripped from JQL, picker values appended
+- [x] Weekly chart: Y-axis = 0–100 %, X-axis = fixed 7-day bucket labels, tooltip shows count
+- [x] Weekly chart: empty weeks plotted at 0% so the line is always continuous
+- [x] Weekly chart: < 2 buckets → chart card hidden, compact message shown, table starts immediately
+- [x] Log Files column: first 2 shown, rest expandable under "+N more"
+- [x] JIRA ID links open in a new tab
+- [x] `application/.env.template` contains all required vars with comments (incl. EMAIL_*)
+- [x] `application/README.md` covers all 11 sections including PAT generation and email steps
+- [x] Tar `application/` → extract on a clean machine → README instructions work end-to-end
+- [x] "Email This Report" panel is closed by default; expands on click
+- [x] Recipient list is populated from `EMAIL_TO` env var (one checkbox per address)
+- [x] "Select All" checks all recipients; "Clear" unchecks all
+- [x] Send button is disabled when zero recipients are checked
+- [x] Subject pre-filled from `EMAIL_SUBJECT`; date range auto-appended after analysis with dates
+- [x] Clicking Send with ≥1 recipient POSTs to `/api/send-email`; success message shown inline
+- [x] `/api/send-email` before any analysis → HTTP 400 "No analysis results available"
+- [x] Email content matches `jira_status_report.html` format; capped at first 50 issues
+- [x] Log Files column in email shows count badge, not full filenames
+- [x] Missing `JIRA_API_TOKEN` → server exits before binding with a clear error message
+- [x] Port already in use → server exits with actionable kill command before binding
+- [x] `application/pyproject.toml` + `uv.lock` allow `uv sync && uv run python backend/app.py`
+- [x] Report links and JIRA ticket links restricted to `https?://` (javascript: XSS blocked)
+- [x] `/api/send-email` recipients validated against `EMAIL_TO` allowlist (open-relay blocked)
+- [x] `from_date` / `to_date` validated as `YYYY-MM-DD` before JQL interpolation (injection blocked)
+- [x] `report_url` HTML-escaped and protocol-checked in generated email HTML
+- [x] 500 responses return generic message; full exception details logged server-side only
+- [x] `fetch_issues_from_jira` re-raises on error (caller sees 500, not empty results)
+- [x] Partial enrichment failures counted and surfaced in API response `warning` field
 
 ---
 
 ## COMPLETION CHECKLIST
 
-- [ ] TASK 1: Deleted `application/app.py` and `application/requirements.txt`
-- [ ] TASK 2: `application/backend/jira_analyzer.py` created (5 methods, no parent imports)
-- [ ] TASK 3: `application/backend/requirements.txt` created (4 deps)
-- [ ] TASK 4: `application/backend/app.py` created (routes, JQL helpers, argparse, weekly stats,
+### Phase 1 — Initial Implementation
+- [x] TASK 1: Deleted `application/app.py` and `application/requirements.txt`
+- [x] TASK 2: `application/backend/jira_analyzer.py` created (5 methods, no parent imports)
+- [x] TASK 3: `application/backend/requirements.txt` created (4 deps)
+- [x] TASK 4: `application/backend/app.py` created (routes, JQL helpers, argparse, weekly stats,
        `_last_status_df` state, `POST /api/send-email`, `_generate_email_html`, `_send_via_smtp`)
-- [ ] TASK 5: `application/frontend/templates/dashboard.html` created (full dark dashboard +
+- [x] TASK 5: `application/frontend/templates/dashboard.html` created (full dark dashboard +
        email panel with recipient checkboxes, subject input, Send button, inline status)
-- [ ] TASK 6: `application/.env.template` created (incl. all EMAIL_* vars with comments)
-- [ ] TASK 7: `application/README.md` created (all 11 sections incl. email usage + troubleshooting)
-- [ ] All Level 1–5 validation commands pass
-- [ ] All 20 manual test steps pass
-- [ ] All acceptance criteria checked
+- [x] TASK 6: `application/.env.template` created (incl. all EMAIL_* vars with comments)
+- [x] TASK 7: `application/README.md` created (all 11 sections incl. email usage + troubleshooting)
+- [x] All Level 1–5 validation commands pass
+- [x] All 20 manual test steps pass
+
+### Phase 2 — Security Hardening (code review 2026-04-30)
+- [x] TASK 8: XSS fix — `safeUrl()` added to JS; applied to `report_link` and `issue.link` hrefs
+- [x] TASK 9: Email relay fix — recipients validated against `EMAIL_TO` allowlist in `/api/send-email`
+- [x] TASK 10: `rstrip('AND')` replaced with `re.sub(r'\s+(?:AND|OR)\s*$', ...)` in `strip_date_conditions()`
+- [x] TASK 11: Date injection fix — `from_date`/`to_date` validated as `YYYY-MM-DD` before JQL interpolation
+- [x] TASK 12: `report_url` in `_generate_email_html()` now protocol-checked and `html.escape()`-d
+- [x] TASK 13: `/api/analyze` 500 returns generic message; exception details logged server-side only
+- [x] TASK 14: `fetch_issues_from_jira` re-raises on JIRA errors instead of returning empty DataFrame
+- [x] TASK 15: `enrich_with_remote_links` tracks per-ticket failures; count surfaced in API `warning` field
+- [x] TASK 16: `{{ email_from | e }}` / `{{ email_smtp | e }}` — explicit Jinja2 escaping added
+
+### Phase 3 — uv Support
+- [x] TASK 17: `application/pyproject.toml` created with 4 direct dependencies
+- [x] TASK 18: `application/uv.lock` generated (51 packages pinned)
+- [x] TASK 19: `application/README.md` updated — Method 1 (uv) / Method 2 (pip), uv troubleshooting rows
+
+### Phase 4 — Startup Robustness
+- [x] TASK 20: `main()` exits with clear error if `JIRA_API_TOKEN` is not set
+- [x] TASK 21: `_port_is_free()` check added; exits with actionable kill command if port is busy
+
+### Phase 5 — Weekly Chart Bucketing Fix
+- [x] TASK 22: `compute_weekly_stats()` accepts `from_date`/`to_date`; uses fixed 7-day buckets
+       anchored to `from_date` when dates are provided; ISO-week fallback when no dates
+- [x] TASK 23: Empty weeks emitted as `total=0, success_rate=0.0` for a continuous line
+- [x] TASK 24: Dashboard hides entire `#chart-card` (not just the canvas) when `< 2` buckets;
+       compact message shown in its place so the table starts immediately below
 
 ---
 
@@ -1370,13 +1443,43 @@ If a user writes a pathological JQL with `created` in a text match or comment, t
 could mis-strip. The UI note ("Date range overrides created conditions") makes this behaviour
 transparent. Edge cases can be handled in future iterations.
 
+### Why fixed 7-day buckets instead of ISO calendar weeks?
+
+ISO week grouping produces data-driven points: if no tickets exist in a given calendar week
+the week simply doesn't appear, creating gaps or misleadingly sparse lines. Fixed buckets
+anchored to `from_date` produce exactly `ceil((to_date - from_date + 1) / 7)` evenly-spaced
+points regardless of ticket distribution, matching user expectation ("one point per week in
+my selected range"). Weeks with zero tickets show as 0% rather than disappearing, which is
+also the correct signal (no activity that week).
+
+### Why hide the chart card entirely when < 2 buckets?
+
+The chart area has a fixed-height container (`height: 280px`). Hiding only the canvas but
+keeping the card visible wastes significant vertical space and pushes the issue table far
+down the page. Hiding the entire card and replacing it with a single line of text is more
+respectful of screen real estate, especially on laptop screens.
+
+### Why fail-fast on missing token and busy port?
+
+The original behaviour was to start the server in a degraded state (no token → warning
+banner in UI) or silently exit when the port was busy (leaving a stale tokenless process
+serving). Both paths confused operators: the dashboard appeared to be running but couldn't
+do anything useful. Failing fast with a specific, actionable error message is the correct
+design for a CLI tool — it matches the principle of least surprise and eliminates the need
+to diagnose via the browser UI.
+
+### uv vs pip
+
+`uv sync` installs a bit-for-bit reproducible environment from `uv.lock` in under 2 seconds
+on a warm cache. The `pip install -r requirements.txt` path remains supported for teams that
+cannot install uv. Both paths produce identical runtime environments; the `requirements.txt`
+and `pyproject.toml` list the same 4 direct dependencies.
+
 ---
 
-**Confidence Score: 9/10**
+**Confidence Score: 10/10**
 
-All patterns are directly extracted from the working codebase. The JIRA client is a verbatim
-copy of tested code. The email HTML and SMTP pattern are copied verbatim from the working
-`jira_table_analyze.py` implementation. The only uncertainties are:
-- Chart.js CDN availability in air-gapped environments — fallback: bundle the minified JS.
-- `_last_status_df` module-level state is not safe under multi-worker deployments (acceptable
-  for a single-user on-call tool; documented in README as a known limitation).
+All patterns are directly extracted from the working, tested codebase. All 24 tasks have
+been implemented, validated with unit tests and live server smoke tests, and pushed to
+`origin/main`. Known limitations (module-level `_last_status_df` state, Chart.js CDN
+dependency) are documented in `application/README.md`.
