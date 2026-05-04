@@ -1504,11 +1504,96 @@ Open `http://localhost:5001` and run through all 20 manual test steps above.
        compact message shown in its place so the table starts immediately below
 
 ### Phase 6 — Chart Visual Upgrade (combo bar + line, 90 % target)
-- [ ] TASK 25: Replace simple line chart with mixed stacked-bar + line Chart.js config; add
+- [x] TASK 25: Replace simple line chart with mixed stacked-bar + line Chart.js config; add
        `CHART_TARGET = 90` constant; left Y-axis = ticket count, right Y-axis = success rate %
-- [ ] TASK 26: Data points below 90 % rendered red on the rate line; target line dashed amber at 90 %
-- [ ] TASK 27: Tooltip updated — shows ✓/✗ counts, ◎ rate, total, and "⚠ Below target by X %" warning
-- [ ] TASK 28: Custom HTML legend replaces Chart.js built-in; chart-wrap height increased to 320 px
+- [x] TASK 26: Data points below 90 % rendered red on the rate line; target line dashed amber at 90 %
+- [x] TASK 27: Tooltip updated — shows ✓/✗ counts, ◎ rate, total, and "⚠ Below target by X %" warning
+- [x] TASK 28: Custom HTML legend replaces Chart.js built-in; chart-wrap height increased to 320 px
+
+### Phase 7 — Remote Link Fetch Performance (parallel + cache)
+
+**Problem**: `enrich_with_remote_links()` fetches one JIRA remote-link API call per ticket
+sequentially. At ~300 ms per call, 100 tickets takes ~30 s.
+
+**Solution**: Two complementary fixes applied together.
+
+**TASK 29 — Parallel fetching with `ThreadPoolExecutor`**
+
+Replace the sequential `for` loop in `enrich_with_remote_links()` with a thread pool.
+`MAX_WORKERS = 10` concurrent threads so JIRA is not overwhelmed.
+
+```python
+from concurrent.futures import ThreadPoolExecutor, as_completed
+
+MAX_LINK_WORKERS = 10
+
+def enrich_with_remote_links(self, df: pd.DataFrame) -> pd.DataFrame:
+    keys = list(df['Key'])
+    print(f"\n[Detailed Report] Fetching remote links for {len(keys)} issues "
+          f"(parallel, {MAX_LINK_WORKERS} workers)...")
+    results: dict = {}
+    failures = 0
+
+    with ThreadPoolExecutor(max_workers=MAX_LINK_WORKERS) as pool:
+        future_to_key = {pool.submit(self.fetch_remote_links, key): key for key in keys}
+        for future in as_completed(future_to_key):
+            key = future_to_key[future]
+            links = future.result()
+            if links['error']:
+                failures += 1
+            results[key] = links
+
+    df = df.copy()
+    df['Report Link'] = [results[k]['report_url'] or '' for k in keys]
+    df['Log Files']   = [', '.join(results[k]['log_files']) for k in keys]
+    self.enrichment_failures = failures
+    return df
+```
+
+Expected speedup: ~8–10× for 100 tickets (30 s → 3–4 s).
+
+**TASK 30 — In-memory LRU cache with 1-hour TTL**
+
+Cache `fetch_remote_links(key)` results so repeat analyses (same ticket, different date
+overlap) skip the network call entirely. Cache is module-level so it persists across
+requests for the lifetime of the Flask process.
+
+```python
+from datetime import datetime
+
+_LINK_CACHE: dict = {}   # key → {'data': dict, 'ts': datetime}
+CACHE_TTL_SECONDS = 3600
+
+def fetch_remote_links(self, key: str) -> Dict:
+    cached = _LINK_CACHE.get(key)
+    if cached and (datetime.now() - cached['ts']).total_seconds() < CACHE_TTL_SECONDS:
+        return cached['data']
+
+    result = {'report_url': None, 'log_files': [], 'error': False}
+    try:
+        remote_links = self.jira.remote_links(key)
+        for rl in remote_links:
+            obj   = rl.object
+            title = getattr(obj, 'title', '') or ''
+            url   = getattr(obj, 'url',   '') or ''
+            if title == 'VoxioTriageX - Triage Report':
+                result['report_url'] = url
+            elif title.startswith('TriageX - Log '):
+                result['log_files'].append(title[len('TriageX - Log '):])
+    except Exception as e:
+        print(f"  ⚠ Could not fetch remote links for {key}: {e}")
+        result['error'] = True
+
+    if not result['error']:
+        _LINK_CACHE[key] = {'data': result, 'ts': datetime.now()}
+    return result
+```
+
+Cache is only written on success — errored tickets are always retried.
+
+**VALIDATE**:
+- `cd triagex-jira-dashboard/backend && python -c "from jira_analyzer import JiraAnalyzer; print('OK')"`
+- Time two consecutive identical analyses with Include Report Links — second should be near-instant.
 
 ---
 

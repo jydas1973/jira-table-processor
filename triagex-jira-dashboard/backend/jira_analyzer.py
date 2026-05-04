@@ -1,7 +1,16 @@
 #!/usr/bin/env python3
 import pandas as pd
 from typing import Dict
+from datetime import datetime
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from jira import JIRA
+
+# Remote-link fetch tuning
+MAX_LINK_WORKERS  = 10      # concurrent threads when enriching tickets
+CACHE_TTL_SECONDS = 3600    # 1 hour
+
+# Module-level cache: jira_key → {'data': dict, 'ts': datetime}
+_LINK_CACHE: dict = {}
 
 
 class JiraAnalyzer:
@@ -23,40 +32,55 @@ class JiraAnalyzer:
             raise
 
     def fetch_remote_links(self, key: str) -> Dict:
+        # Return cached result if still fresh
+        cached = _LINK_CACHE.get(key)
+        if cached and (datetime.now() - cached['ts']).total_seconds() < CACHE_TTL_SECONDS:
+            return cached['data']
+
         result = {'report_url': None, 'log_files': [], 'error': False}
         try:
             remote_links = self.jira.remote_links(key)
             for rl in remote_links:
                 obj = rl.object
                 title = getattr(obj, 'title', '') or ''
-                url = getattr(obj, 'url', '') or ''
+                url   = getattr(obj, 'url',   '') or ''
                 if title == 'VoxioTriageX - Triage Report':
                     result['report_url'] = url
                 elif title.startswith('TriageX - Log '):
-                    filename = title[len('TriageX - Log '):]
-                    result['log_files'].append(filename)
+                    result['log_files'].append(title[len('TriageX - Log '):])
         except Exception as e:
             print(f"  ⚠ Could not fetch remote links for {key}: {e}")
             result['error'] = True
+
+        # Only cache successful fetches so errors are always retried
+        if not result['error']:
+            _LINK_CACHE[key] = {'data': result, 'ts': datetime.now()}
         return result
 
     def enrich_with_remote_links(self, df: pd.DataFrame) -> pd.DataFrame:
-        print(f"\n[Detailed Report] Fetching remote links for {len(df)} issues...")
-        report_urls = []
-        log_files_list = []
+        keys = list(df['Key'])
+        cache_hits = sum(1 for k in keys if k in _LINK_CACHE and
+                         (datetime.now() - _LINK_CACHE[k]['ts']).total_seconds() < CACHE_TTL_SECONDS)
+        print(f"\n[Detailed Report] Fetching remote links for {len(keys)} issues "
+              f"({cache_hits} cached, {MAX_LINK_WORKERS} parallel workers)...")
+
+        link_results: dict = {}
         failures = 0
-        for key in df['Key']:
-            links = self.fetch_remote_links(key)
-            if links['error']:
-                failures += 1
-            report_urls.append(links['report_url'] or '')
-            log_files_list.append(', '.join(links['log_files']))
-            status = 'yes' if links['report_url'] else 'no'
-            print(f"  ✓ {key}: report={status}, logs={len(links['log_files'])}")
+
+        with ThreadPoolExecutor(max_workers=MAX_LINK_WORKERS) as pool:
+            future_to_key = {pool.submit(self.fetch_remote_links, key): key for key in keys}
+            for future in as_completed(future_to_key):
+                key   = future_to_key[future]
+                links = future.result()
+                if links['error']:
+                    failures += 1
+                link_results[key] = links
+
         df = df.copy()
-        df['Report Link'] = report_urls
-        df['Log Files'] = log_files_list
+        df['Report Link'] = [link_results[k]['report_url'] or '' for k in keys]
+        df['Log Files']   = [', '.join(link_results[k]['log_files']) for k in keys]
         self.enrichment_failures = failures
+        print(f"  ✓ Done — {len(keys) - failures}/{len(keys)} succeeded, {failures} failed")
         return df
 
     def fetch_issues_from_jira(self, jql_query: str, max_results: int = 100) -> pd.DataFrame:
