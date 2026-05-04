@@ -1745,6 +1745,145 @@ when the loading overlay is hidden.
 
 **VALIDATE**: click Analyze → loading overlay shows a sweeping blue bar, not a spinner.
 
+### Phase 9 — Split Base Filter / Date Condition inside Advanced Options (Option B)
+
+> Option A (live effective query strip outside Advanced Options) was implemented then
+> superseded by Option B on 2026-05-04 at user request.
+
+**Problem**: The JQL textarea shows the full raw JQL including `created >= -3d`. When the
+user picks dates, the textarea does not change, so there is no signal that the date
+condition has been overridden. The mental model of "one monolithic JQL string" obscures the
+fact that date conditions are treated separately.
+
+**Solution**: Split the Advanced Options JQL control into two distinct parts:
+
+1. **Base Filter textarea** — pre-populated on page load with the JQL *minus* any date
+   conditions (stripped by JS). The user edits only the permanent filter here.
+2. **Date Condition row** — read-only display beneath the textarea:
+   - Pickers empty → shows the original extracted date condition in muted text
+     (e.g. `AND created >= -3d  (from default JQL)`)
+   - Pickers filled → shows the injected picker dates in **amber**
+     (e.g. `AND created >= "2026-04-28" AND created <= "2026-05-04"`)
+   - No date condition in default JQL and pickers empty → shows `(none — no date restriction)`
+
+The `runAnalysis()` function composes the full JQL before sending: `baseFilter + originalDatePart`
+when pickers are empty, or just `baseFilter` when pickers are filled (backend appends pickers).
+
+#### TASK 33 — Date Condition row HTML + CSS
+
+Inside `<details id="advanced">`, replace the existing `<label>JQL Query …</label>` block with:
+
+```html
+<label>Base Filter
+  <textarea id="jql-input" rows="3" data-raw-jql="{{ default_jql | e }}"></textarea>
+  <small>Permanent filter — date conditions are managed separately below.</small>
+</label>
+<div class="date-condition-row">
+  <span class="dc-label">Date Condition</span>
+  <code id="date-condition-display" class="dc-original"></code>
+  <small class="dc-hint">Controlled by the date pickers above. Pick dates to override.</small>
+</div>
+```
+
+CSS (add alongside `#advanced` styles):
+```css
+.date-condition-row {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: 12px;
+}
+.dc-label {
+  font-size: 13px;
+  color: var(--text-muted);
+}
+#date-condition-display {
+  font-family: 'Courier New', monospace;
+  font-size: 12px;
+  padding: 6px 10px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: var(--bg-input);
+  word-break: break-all;
+}
+.dc-original { color: var(--text-muted); }
+.dc-active   { color: #e3b341; font-weight: 600; border-color: #e3b341; }
+.dc-none     { color: var(--text-muted); font-style: italic; }
+.dc-hint     { color: var(--text-muted); font-size: 12px; }
+```
+
+#### TASK 34 — JS: `extractDatePart`, `stripDateConditions`, `updateDateConditionDisplay`
+
+```javascript
+let originalDatePart = '';   // e.g. "created >= -3d", extracted on page load
+
+function extractDatePart(jql) {
+  const ge = jql.match(/created\s*>=\s*["']?[-\w]+["']?/i);
+  const le = jql.match(/created\s*<=\s*["']?[-\w]+["']?/i);
+  return [ge?.[0], le?.[0]].filter(Boolean).join(' AND ');
+}
+
+function stripDateConditions(jql) {
+  jql = jql.replace(/\s+AND\s+created\s*>=\s*["']?[-\w]+["']?/gi, '');
+  jql = jql.replace(/\s+AND\s+created\s*<=\s*["']?[-\w]+["']?/gi, '');
+  jql = jql.replace(/created\s*>=\s*["']?[-\w]+["']?\s+AND\s+/gi, '');
+  jql = jql.replace(/created\s*<=\s*["']?[-\w]+["']?\s+AND\s+/gi, '');
+  jql = jql.replace(/\s+ORDER\s+BY\s+.*$/gi, '');
+  return jql.trim().replace(/\s+(AND|OR)\s*$/i, '').trim();
+}
+
+function updateDateConditionDisplay() {
+  const from = document.getElementById('from-date').value;
+  const to   = document.getElementById('to-date').value;
+  const el   = document.getElementById('date-condition-display');
+  if (from && to) {
+    el.className   = 'dc-active';
+    el.textContent = `AND created >= "${from}" AND created <= "${to}"`;
+  } else if (originalDatePart) {
+    el.className   = 'dc-original';
+    el.textContent = `AND ${originalDatePart}  (from default JQL)`;
+  } else {
+    el.className   = 'dc-none';
+    el.textContent = '(none — no date restriction)';
+  }
+}
+```
+
+On page load (inside `DOMContentLoaded`):
+```javascript
+// Extract date part from raw default JQL, strip it from textarea
+const textarea   = document.getElementById('jql-input');
+const rawJql     = textarea.dataset.rawJql || textarea.value;
+originalDatePart = extractDatePart(rawJql);
+textarea.value   = stripDateConditions(rawJql);
+// Wire pickers to update the Date Condition display
+document.getElementById('from-date').addEventListener('input', updateDateConditionDisplay);
+document.getElementById('to-date').addEventListener('input',   updateDateConditionDisplay);
+updateDateConditionDisplay();
+```
+
+#### TASK 35 — Compose JQL in `runAnalysis()`
+
+When pickers are empty, reattach `originalDatePart` to the base filter before sending so the
+default date restriction is preserved:
+
+```javascript
+const baseJql    = document.getElementById('jql-input').value.trim();
+const jqlToSend  = (!fromDate && !toDate && originalDatePart)
+                   ? `${baseJql} AND ${originalDatePart}`
+                   : baseJql;
+// POST body: jql: jqlToSend
+```
+
+**VALIDATE**:
+- Page loads → textarea shows base filter only (no `created >= -3d`); Date Condition row
+  shows `AND created >= -3d  (from default JQL)` in muted text
+- Pick dates → Date Condition row turns **amber** with picked dates
+- Clear one picker → Date Condition row reverts to original muted condition
+- Edit textarea → date condition row unchanged (it's independent of base filter edits)
+- Analyze with no dates → backend receives full JQL including original date condition
+- Analyze with dates → backend receives base filter only; backend appends picker dates
+
 ---
 
 ## NOTES

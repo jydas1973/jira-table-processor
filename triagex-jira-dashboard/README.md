@@ -210,9 +210,11 @@ taskkill /PID <PID> /F
 
 1. Open `http://localhost:5001` in your browser.
 2. Use the **date shortcuts** (Last 7d / 14d / 30d / 90d) or pick custom **From / To** dates using the calendar pickers.
-3. Click **Advanced Options** to inspect or modify the JQL query, change Max Results, or enable **Include Report Links** (fetches VoxioTriageX report URLs — slower).
+3. Click **Advanced Options** to view or edit the query:
+   - **Base Filter** — the permanent part of the JQL (date conditions are stripped out and shown separately below it).
+   - **Date Condition** — read-only row that reflects the active date filter. Shows the original default condition in muted text when no dates are picked; turns **amber** with the selected dates when both pickers are filled.
 4. Click **Analyze**. A sweeping progress bar appears while JIRA is queried.
-5. Results appear:
+6. Results appear:
    - **Summary cards**: Total Triaged, Successful count, Success Rate %.
    - **Success Rate chart**: stacked green/red bars show ticket volume per period; the blue line shows success rate % against a dashed 90 % target. Periods below 90 % turn red on the line and the hover tooltip flags how far below target that period was. The chart automatically switches between **daily** (< 21 distinct ticket dates) and **weekly** (≥ 21) granularity based on the data returned.
    - **JIRA Status Report table**: all triaged tickets with status badges.

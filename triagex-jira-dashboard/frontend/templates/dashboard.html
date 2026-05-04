@@ -88,6 +88,29 @@
     }
     details summary:hover { color: var(--text); }
 
+    /* Date Condition row (Option B) */
+    .date-condition-row {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+      margin-top: 12px;
+    }
+    .dc-label { font-size: 13px; color: var(--text-muted); }
+    #date-condition-display {
+      font-family: 'Courier New', monospace;
+      font-size: 12px;
+      padding: 6px 10px;
+      border-radius: 6px;
+      border: 1px solid var(--border);
+      background: var(--bg-input);
+      word-break: break-all;
+      transition: color 0.2s, border-color 0.2s;
+    }
+    .dc-original { color: var(--text-muted); }
+    .dc-active   { color: #e3b341; font-weight: 600; border-color: #e3b341 !important; }
+    .dc-none     { color: var(--text-muted); font-style: italic; }
+    .dc-hint     { color: var(--text-muted); font-size: 12px; }
+
     #advanced { margin-bottom: 16px; }
     #advanced label {
       display: flex;
@@ -444,10 +467,15 @@
 
     <details id="advanced">
       <summary>Advanced Options</summary>
-      <label>JQL Query
-        <textarea id="jql-input" rows="3">{{ default_jql | e }}</textarea>
-        <small>Date conditions are overridden by the date pickers above when both are filled.</small>
+      <label>Base Filter
+        <textarea id="jql-input" rows="3" data-raw-jql="{{ default_jql | e }}"></textarea>
+        <small>Permanent filter — date conditions are managed separately below.</small>
       </label>
+      <div class="date-condition-row">
+        <span class="dc-label">Date Condition</span>
+        <code id="date-condition-display" class="dc-original"></code>
+        <small class="dc-hint">Controlled by the date pickers above. Pick dates to override.</small>
+      </div>
       <label>Max Results (JIRA fetch limit, 1–1000)
         <input type="number" id="max-results" value="500" min="1" max="1000">
       </label>
@@ -624,10 +652,45 @@
     from.setDate(from.getDate() - days);
     document.getElementById('to-date').value   = fmtDate(today);
     document.getElementById('from-date').value = fmtDate(from);
+    updateDateConditionDisplay();
   }
 
   function fmtDate(d) {
     return d.toISOString().slice(0, 10);
+  }
+
+  // ── JQL split: base filter + date condition (Option B) ───────────────────
+  let originalDatePart = '';
+
+  function extractDatePart(jql) {
+    const ge = jql.match(/created\s*>=\s*["']?[-\w]+["']?/i);
+    const le = jql.match(/created\s*<=\s*["']?[-\w]+["']?/i);
+    return [ge?.[0], le?.[0]].filter(Boolean).join(' AND ');
+  }
+
+  function stripDateConditions(jql) {
+    jql = jql.replace(/\s+AND\s+created\s*>=\s*["']?[-\w]+["']?/gi, '');
+    jql = jql.replace(/\s+AND\s+created\s*<=\s*["']?[-\w]+["']?/gi, '');
+    jql = jql.replace(/created\s*>=\s*["']?[-\w]+["']?\s+AND\s+/gi, '');
+    jql = jql.replace(/created\s*<=\s*["']?[-\w]+["']?\s+AND\s+/gi, '');
+    jql = jql.replace(/\s+ORDER\s+BY\s+.*$/gi, '');
+    return jql.trim().replace(/\s+(AND|OR)\s*$/i, '').trim();
+  }
+
+  function updateDateConditionDisplay() {
+    const from = document.getElementById('from-date').value;
+    const to   = document.getElementById('to-date').value;
+    const el   = document.getElementById('date-condition-display');
+    if (from && to) {
+      el.className   = 'dc-active';
+      el.textContent = `AND created >= "${from}" AND created <= "${to}"`;
+    } else if (originalDatePart) {
+      el.className   = 'dc-original';
+      el.textContent = `AND ${originalDatePart}  (from default JQL)`;
+    } else {
+      el.className   = 'dc-none';
+      el.textContent = '(none — no date restriction)';
+    }
   }
 
   // ── Analysis ──────────────────────────────────────────────────────────────
@@ -635,7 +698,12 @@
     hideError();
     const fromDate = document.getElementById('from-date').value;
     const toDate   = document.getElementById('to-date').value;
-    const jql      = document.getElementById('jql-input').value;
+    const baseJql  = document.getElementById('jql-input').value.trim();
+    // Re-attach original date condition when pickers are empty so the default date
+    // restriction is preserved; when pickers are filled the backend appends them.
+    const jql      = (!fromDate && !toDate && originalDatePart)
+                     ? `${baseJql} AND ${originalDatePart}`
+                     : baseJql;
     const maxRes   = parseInt(document.getElementById('max-results').value) || 500;
     const detail   = document.getElementById('include-detail').checked;
 
@@ -995,11 +1063,21 @@
     return /^https?:\/\//i.test(u) ? u : '#';
   }
 
-  // Wire recipient checkboxes after DOM load
+  // Wire up listeners and initialise after DOM load
   document.addEventListener('DOMContentLoaded', () => {
+    // Recipient checkboxes
     document.querySelectorAll('.recipient-cb').forEach(cb => {
       cb.addEventListener('change', updateSendButton);
     });
+    // Option B: extract date part from raw default JQL, strip it from textarea
+    const textarea   = document.getElementById('jql-input');
+    const rawJql     = textarea.dataset.rawJql || textarea.value;
+    originalDatePart = extractDatePart(rawJql);
+    textarea.value   = stripDateConditions(rawJql);
+    // Wire pickers to update the Date Condition display
+    document.getElementById('from-date').addEventListener('input', updateDateConditionDisplay);
+    document.getElementById('to-date').addEventListener('input',   updateDateConditionDisplay);
+    updateDateConditionDisplay();
   });
 </script>
 
