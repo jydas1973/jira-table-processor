@@ -1595,6 +1595,156 @@ Cache is only written on success — errored tickets are always retried.
 - `cd triagex-jira-dashboard/backend && python -c "from jira_analyzer import JiraAnalyzer; print('OK')"`
 - Time two consecutive identical analyses with Include Report Links — second should be near-instant.
 
+### Phase 8 — Adaptive Daily/Weekly Chart + Progress Bar
+
+#### TASK 31 — Adaptive granularity in `compute_weekly_stats()` (`backend/app.py`)
+
+**Decision rule**: count the number of **distinct calendar dates** present in `status_df['Date']`
+after label processing. If `distinct_dates < 21` → daily buckets; otherwise → weekly 7-day buckets.
+This is data-driven — it reflects what actually came back from JIRA, not the picker range.
+
+**Daily mode** (distinct dates < 21):
+
+- With `from_date` + `to_date`: iterate day-by-day from `from_date` to `to_date`; days with no
+  tickets emit `total=0, success_rate=0.0` (same zero-fill guarantee as weekly mode).
+- Without dates: iterate from `min(Date)` to `max(Date)` in the data; days with no tickets emit 0.
+- Label format: `May 04` (`%b %d`)
+
+**Weekly mode** (distinct dates ≥ 21): unchanged — existing fixed 7-day bucket logic.
+
+```python
+DAILY_THRESHOLD = 21   # distinct dates below this → daily granularity
+
+def compute_weekly_stats(status_df: pd.DataFrame,
+                         from_date: str = '', to_date: str = '') -> list:
+    if status_df.empty:
+        return []
+    df = status_df.copy()
+    df['_date'] = pd.to_datetime(df['Date'], errors='coerce')
+    df = df.dropna(subset=['_date'])
+    if df.empty:
+        return []
+
+    distinct_dates = df['_date'].dt.date.nunique()
+    use_daily = distinct_dates < DAILY_THRESHOLD
+
+    if use_daily:
+        # Determine iteration range
+        if from_date and to_date:
+            range_start = datetime.strptime(from_date, '%Y-%m-%d').date()
+            range_end   = datetime.strptime(to_date,   '%Y-%m-%d').date()
+        else:
+            range_start = df['_date'].dt.date.min()
+            range_end   = df['_date'].dt.date.max()
+
+        buckets = []
+        current = range_start
+        while current <= range_end:
+            mask    = df['_date'].dt.date == current
+            group   = df[mask]
+            total   = len(group)
+            success = int((group['Status'] == 'Success').sum()) if total > 0 else 0
+            rate    = round(success / total * 100, 1) if total > 0 else 0.0
+            buckets.append({
+                'label'       : current.strftime('%b %d'),
+                'success_rate': rate,
+                'total'       : total,
+                'success'     : success,
+                'failed'      : total - success,
+            })
+            current += timedelta(days=1)
+        return buckets
+
+    # ── Weekly mode (unchanged) ──────────────────────────────────────────────
+    if from_date and to_date:
+        range_start = datetime.strptime(from_date, '%Y-%m-%d')
+        range_end   = datetime.strptime(to_date,   '%Y-%m-%d')
+        weekly = []
+        bucket_start = range_start
+        while bucket_start <= range_end:
+            bucket_end = min(bucket_start + timedelta(days=6), range_end)
+            mask       = ((df['_date'].dt.date >= bucket_start.date()) &
+                          (df['_date'].dt.date <= bucket_end.date()))
+            group      = df[mask]
+            total      = len(group)
+            success    = int((group['Status'] == 'Success').sum()) if total > 0 else 0
+            rate       = round(success / total * 100, 1) if total > 0 else 0.0
+            label      = f'{bucket_start.strftime("%b %d")}–{bucket_end.strftime("%b %d")}'
+            weekly.append({'label': label, 'success_rate': rate,
+                           'total': total, 'success': success, 'failed': total - success})
+            bucket_start += timedelta(days=7)
+        return weekly
+
+    # ISO calendar week fallback (no date range)
+    iso = df['_date'].dt.isocalendar()
+    df['_year'] = iso.year.astype(int)
+    df['_week'] = iso.week.astype(int)
+    weekly = []
+    for (year, week), group in df.groupby(['_year', '_week']):
+        total   = len(group)
+        success = int((group['Status'] == 'Success').sum())
+        rate    = round(success / total * 100, 1) if total > 0 else 0.0
+        try:
+            week_start = datetime.strptime(f'{year}-W{week:02d}-1', '%G-W%V-%u')
+            week_end   = week_start + timedelta(days=6)
+            label      = f'W{week} ({week_start.strftime("%b %d")}–{week_end.strftime("%b %d")})'
+        except ValueError:
+            label = f'Week {week}'
+        weekly.append({'label': label, 'iso_year': int(year), 'iso_week': int(week),
+                       'success_rate': rate, 'total': total,
+                       'success': success, 'failed': total - success})
+    return sorted(weekly, key=lambda x: (x['iso_year'], x['iso_week']))
+```
+
+**Also**: the `< 2` chart-hide threshold still applies after bucketing — if daily mode produces
+only 1 day of data, the chart is hidden and the compact message is shown.
+
+**VALIDATE**: query a 7-day range → chart shows daily bars. Query a 30-day range → chart shows
+weekly bars. Query a 14-day range with data only on 3 days → still daily (driven by data, not picker).
+
+#### TASK 32 — Progress bar replacing spinner (`frontend/templates/dashboard.html`)
+
+Replace the rotating spinner with an **indeterminate pulse progress bar** in the loading overlay.
+
+**HTML** — replace the `<div class="spinner"></div>` with:
+```html
+<div class="progress-bar-wrap">
+  <div class="progress-bar-track">
+    <div class="progress-bar-fill"></div>
+  </div>
+  <p>Fetching from JIRA…</p>
+</div>
+```
+
+**CSS** — remove `.spinner` styles; add:
+```css
+.progress-bar-wrap { text-align: center; }
+.progress-bar-track {
+  width: 280px;
+  height: 4px;
+  background: var(--border);
+  border-radius: 2px;
+  overflow: hidden;
+  margin: 0 auto 14px;
+}
+.progress-bar-fill {
+  height: 100%;
+  width: 40%;
+  background: var(--blue);
+  border-radius: 2px;
+  animation: progress-pulse 1.4s ease-in-out infinite;
+}
+@keyframes progress-pulse {
+  0%   { transform: translateX(-100%); }
+  100% { transform: translateX(350%); }
+}
+```
+
+The bar sweeps left-to-right continuously while the JIRA fetch is in progress and disappears
+when the loading overlay is hidden.
+
+**VALIDATE**: click Analyze → loading overlay shows a sweeping blue bar, not a spinner.
+
 ---
 
 ## NOTES
@@ -1652,6 +1802,29 @@ identical to 100 % on 50 tickets. The stacked bars add the "how many" signal wit
 requiring a second chart. The rate line overlaid on the right Y-axis preserves the trend
 read at a glance. This was the chosen design after evaluating four options in an ideation
 session (2026-05-04).
+
+### Why data-driven daily/weekly switching instead of picker-range switching?
+
+The picker range tells you what the user *asked for*; the distinct-date count in the returned
+data tells you what actually *exists*. A 30-day query where tickets only exist on 4 days would
+produce a weekly chart with mostly empty bars — not useful. Using the data's own cardinality
+ensures the chart always shows the appropriate granularity for what was returned. The threshold
+of 21 distinct dates was chosen so that up to ~3 weeks of dense data gets daily bars (more
+readable) while anything spanning a full month or more gets the weekly aggregate view.
+
+### Why fill empty days with 0 in daily mode?
+
+Consistency with weekly mode: a day with no tickets is a meaningful signal (nothing was
+triaged that day), not missing data. Hiding the day entirely would create a misleadingly
+sparse X-axis and break the visual continuity of the bar chart. Zero-filling also ensures
+the target line and rate line are anchored at every point in the date range.
+
+### Why an indeterminate progress bar instead of a spinner?
+
+A horizontal bar is perceptually more informative than a rotating circle — the eye reads
+left-to-right motion as "something is progressing" rather than "waiting". The indeterminate
+sweep keeps it honest (we don't know when JIRA will respond) while still feeling more
+active than a static spinner.
 
 ### Why a 90 % target line?
 

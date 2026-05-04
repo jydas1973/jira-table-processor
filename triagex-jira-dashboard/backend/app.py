@@ -50,6 +50,17 @@ def validate_jql(jql: str):
     return None
 
 
+DAILY_THRESHOLD = 21   # distinct ticket dates below this → daily granularity
+
+
+def _make_bucket(group, label):
+    total   = len(group)
+    success = int((group['Status'] == 'Success').sum()) if total > 0 else 0
+    rate    = round(success / total * 100, 1) if total > 0 else 0.0
+    return {'label': label, 'success_rate': rate,
+            'total': total, 'success': success, 'failed': total - success}
+
+
 def compute_weekly_stats(status_df: pd.DataFrame,
                          from_date: str = '', to_date: str = '') -> list:
     if status_df.empty:
@@ -60,56 +71,56 @@ def compute_weekly_stats(status_df: pd.DataFrame,
     if df.empty:
         return []
 
+    distinct_dates = df['_date'].dt.date.nunique()
+    use_daily = distinct_dates < DAILY_THRESHOLD
+
+    # ── Daily mode ────────────────────────────────────────────────────────────
+    if use_daily:
+        if from_date and to_date:
+            range_start = datetime.strptime(from_date, '%Y-%m-%d').date()
+            range_end   = datetime.strptime(to_date,   '%Y-%m-%d').date()
+        else:
+            range_start = df['_date'].dt.date.min()
+            range_end   = df['_date'].dt.date.max()
+
+        buckets = []
+        current = range_start
+        while current <= range_end:
+            group = df[df['_date'].dt.date == current]
+            buckets.append(_make_bucket(group, current.strftime('%b %d')))
+            current += timedelta(days=1)
+        return buckets
+
+    # ── Weekly mode ───────────────────────────────────────────────────────────
     if from_date and to_date:
-        # Fixed 7-day buckets anchored to from_date so the chart always shows
-        # evenly spaced intervals regardless of where tickets fall.
-        range_start = datetime.strptime(from_date, '%Y-%m-%d')
-        range_end   = datetime.strptime(to_date,   '%Y-%m-%d')
-        weekly = []
+        range_start  = datetime.strptime(from_date, '%Y-%m-%d')
+        range_end    = datetime.strptime(to_date,   '%Y-%m-%d')
+        weekly       = []
         bucket_start = range_start
         while bucket_start <= range_end:
-            bucket_end     = min(bucket_start + timedelta(days=6), range_end)
-            mask           = ((df['_date'].dt.date >= bucket_start.date()) &
-                              (df['_date'].dt.date <= bucket_end.date()))
-            group          = df[mask]
-            total          = len(group)
-            success        = int((group['Status'] == 'Success').sum()) if total > 0 else 0
-            rate           = round(success / total * 100, 1) if total > 0 else 0.0
-            label          = f'{bucket_start.strftime("%b %d")}–{bucket_end.strftime("%b %d")}'
-            weekly.append({
-                'label'       : label,
-                'success_rate': rate,
-                'total'       : total,
-                'success'     : success,
-                'failed'      : total - success,
-            })
+            bucket_end = min(bucket_start + timedelta(days=6), range_end)
+            mask       = ((df['_date'].dt.date >= bucket_start.date()) &
+                          (df['_date'].dt.date <= bucket_end.date()))
+            label      = f'{bucket_start.strftime("%b %d")}–{bucket_end.strftime("%b %d")}'
+            weekly.append(_make_bucket(df[mask], label))
             bucket_start += timedelta(days=7)
         return weekly
 
-    # No explicit date range — fall back to ISO calendar weeks.
+    # ISO calendar week fallback (no date range, weekly mode)
     iso = df['_date'].dt.isocalendar()
     df['_year'] = iso.year.astype(int)
     df['_week'] = iso.week.astype(int)
     weekly = []
     for (year, week), group in df.groupby(['_year', '_week']):
-        total   = len(group)
-        success = int((group['Status'] == 'Success').sum())
-        rate    = round(success / total * 100, 1) if total > 0 else 0.0
         try:
             week_start = datetime.strptime(f'{year}-W{week:02d}-1', '%G-W%V-%u')
             week_end   = week_start + timedelta(days=6)
             label      = f'W{week} ({week_start.strftime("%b %d")}–{week_end.strftime("%b %d")})'
         except ValueError:
             label = f'Week {week}'
-        weekly.append({
-            'label'       : label,
-            'iso_year'    : int(year),
-            'iso_week'    : int(week),
-            'success_rate': rate,
-            'total'       : total,
-            'success'     : success,
-            'failed'      : total - success,
-        })
+        entry = _make_bucket(group, label)
+        entry.update({'iso_year': int(year), 'iso_week': int(week)})
+        weekly.append(entry)
     return sorted(weekly, key=lambda x: (x['iso_year'], x['iso_week']))
 
 
