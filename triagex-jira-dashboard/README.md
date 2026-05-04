@@ -10,7 +10,7 @@ The TriageX JIRA Dashboard connects to `jira-sd.mc1.oracleiaas.com` via a person
 
 - **Date-range picker** that drives a JQL query against JIRA and fetches all tickets labelled `oneview_triagex_success` or `oneview_triagex_failed`
 - **Summary cards** — Total Triaged, Successful count, Success Rate %
-- **Weekly success rate line chart** — one data point per calendar week in the selected range
+- **Weekly success rate chart** — stacked bars (Success / Failed ticket counts) with a success rate % line overlay and a dashed 90 % target line; weeks below target are highlighted in red
 - **Paginated issue table** — JIRA ID (clickable), Status badge, Date Created, optional Report link and Log Files
 - **Optional "Include Report Links"** — fetches VoxioTriageX report URLs and log filenames per ticket (one extra JIRA API call per ticket)
 - **Email Report panel** — send the first 50 issues as a styled HTML email via the Oracle internal SMTP relay
@@ -214,7 +214,7 @@ taskkill /PID <PID> /F
 4. Click **Analyze**. A loading spinner appears while JIRA is queried.
 5. Results appear:
    - **Summary cards**: Total Triaged, Successful count, Success Rate %.
-   - **Weekly Success Rate chart**: one data point per calendar week in the date range.
+   - **Weekly Success Rate chart**: stacked green/red bars show ticket volume per week; the blue line shows success rate % against a dashed 90 % target. Data points below 90 % turn red and the hover tooltip flags how far below target that week was.
    - **JIRA Status Report table**: all triaged tickets with status badges.
      - Use the **Rows per page** dropdown (10 / 25 / 50 / 100) above the table.
      - Navigate pages using the pagination controls below the table.
@@ -272,7 +272,7 @@ taskkill /PID <PID> /F
 | `JQL query appears invalid` | Empty or malformed JQL | Check the JQL in Advanced Options |
 | `No issues found` | JQL returns 0 results in date range | Widen date range or adjust JQL |
 | Port already in use | Another process on port 5001 | Use `--port 8080` |
-| Chart shows "not enough data" | All issues fall within a single calendar week | Widen date range |
+| Chart shows "not enough data" | All issues fall within a single 7-day bucket | Widen date range to span at least 2 weeks |
 | `No analysis results available` | Send clicked before Analyze | Run Analyze first |
 | `EMAIL_SMTP_SERVER is not configured` | Email vars missing from .env | Add `EMAIL_*` vars to `.env` |
 | Email not delivered | Off VPN or SMTP relay unreachable | Connect to Oracle network or VPN |
