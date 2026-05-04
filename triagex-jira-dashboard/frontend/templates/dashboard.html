@@ -259,8 +259,41 @@
       border-radius: 8px;
       padding: 20px;
     }
-    .chart-card h2 { font-size: 16px; font-weight: 600; margin-bottom: 16px; }
-    .chart-wrap { position: relative; height: 280px; }
+    .chart-card-header {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      margin-bottom: 16px;
+      flex-wrap: wrap;
+      gap: 10px;
+    }
+    .chart-card h2 { font-size: 16px; font-weight: 600; margin: 0; }
+    .chart-legend {
+      display: flex;
+      gap: 14px;
+      flex-wrap: wrap;
+      align-items: center;
+    }
+    .legend-item {
+      display: flex;
+      align-items: center;
+      gap: 5px;
+      font-size: 12px;
+      color: var(--text-muted);
+    }
+    .legend-swatch {
+      width: 10px; height: 10px; border-radius: 2px; flex-shrink: 0;
+    }
+    .legend-line-swatch {
+      width: 18px; height: 2px; flex-shrink: 0; border-radius: 1px;
+    }
+    .legend-line-swatch.dashed {
+      background: repeating-linear-gradient(
+        to right, #e3b341 0px, #e3b341 5px, transparent 5px, transparent 9px
+      );
+      height: 2px;
+    }
+    .chart-wrap { position: relative; height: 320px; }
 
     /* Table */
     .table-section {
@@ -489,7 +522,27 @@
 
     <!-- Weekly chart -->
     <div class="chart-card" id="chart-card">
-      <h2>Weekly Success Rate</h2>
+      <div class="chart-card-header">
+        <h2>Weekly Success Rate</h2>
+        <div class="chart-legend">
+          <div class="legend-item">
+            <div class="legend-swatch" style="background:#3fb950;"></div>
+            <span>Successful</span>
+          </div>
+          <div class="legend-item">
+            <div class="legend-swatch" style="background:#f85149;"></div>
+            <span>Failed</span>
+          </div>
+          <div class="legend-item">
+            <div class="legend-line-swatch" style="background:#2f81f7;"></div>
+            <span>Success Rate %</span>
+          </div>
+          <div class="legend-item">
+            <div class="legend-line-swatch dashed"></div>
+            <span>Target (90%)</span>
+          </div>
+        </div>
+      </div>
       <div class="chart-wrap">
         <canvas id="weekly-chart"></canvas>
       </div>
@@ -636,6 +689,8 @@
   }
 
   // ── Chart ─────────────────────────────────────────────────────────────────
+  const CHART_TARGET = 90;
+
   function renderChart(weeklyData) {
     const card   = document.getElementById('chart-card');
     const noData = document.getElementById('chart-no-data');
@@ -654,44 +709,119 @@
 
     const ctx = canvas.getContext('2d');
     chartInstance = new Chart(ctx, {
-      type: 'line',
       data: {
         labels: weeklyData.map(w => w.label),
-        datasets: [{
-          label: 'Success Rate (%)',
-          data: weeklyData.map(w => w.success_rate),
-          borderColor: '#3fb950',
-          backgroundColor: 'rgba(63, 185, 80, 0.08)',
-          fill: true,
-          tension: 0.3,
-          pointRadius: 5,
-          pointHoverRadius: 8,
-          pointBackgroundColor: '#3fb950',
-        }]
+        datasets: [
+          {
+            type: 'bar',
+            label: 'Successful',
+            data: weeklyData.map(w => w.success),
+            backgroundColor: 'rgba(63,185,80,0.75)',
+            borderColor: '#3fb950',
+            borderWidth: 1,
+            borderRadius: { topLeft: 4, topRight: 4, bottomLeft: 0, bottomRight: 0 },
+            borderSkipped: false,
+            stack: 'count',
+            yAxisID: 'yCount',
+            order: 2,
+          },
+          {
+            type: 'bar',
+            label: 'Failed',
+            data: weeklyData.map(w => w.failed),
+            backgroundColor: 'rgba(248,81,73,0.75)',
+            borderColor: '#f85149',
+            borderWidth: 1,
+            borderRadius: { topLeft: 0, topRight: 0, bottomLeft: 0, bottomRight: 0 },
+            borderSkipped: false,
+            stack: 'count',
+            yAxisID: 'yCount',
+            order: 2,
+          },
+          {
+            type: 'line',
+            label: 'Success Rate (%)',
+            data: weeklyData.map(w => w.success_rate),
+            borderColor: '#2f81f7',
+            backgroundColor: 'rgba(47,129,247,0.08)',
+            borderWidth: 2.5,
+            fill: false,
+            tension: 0.35,
+            pointRadius: 5,
+            pointHoverRadius: 8,
+            pointBackgroundColor: weeklyData.map(w =>
+              w.success_rate < CHART_TARGET ? '#f85149' : '#2f81f7'
+            ),
+            pointBorderColor: '#0d1117',
+            pointBorderWidth: 2,
+            yAxisID: 'yRate',
+            order: 1,
+          },
+          {
+            type: 'line',
+            label: `Target (${CHART_TARGET}%)`,
+            data: Array(weeklyData.length).fill(CHART_TARGET),
+            borderColor: '#e3b341',
+            borderWidth: 1.5,
+            borderDash: [6, 4],
+            pointRadius: 0,
+            fill: false,
+            yAxisID: 'yRate',
+            order: 3,
+          },
+        ]
       },
       options: {
         responsive: true,
         maintainAspectRatio: false,
+        interaction: { mode: 'index', intersect: false },
         scales: {
-          y: {
-            min: 0, max: 100,
-            grid:  { color: '#30363d' },
-            ticks: { color: '#8b949e', callback: v => v + '%' },
-            title: { display: true, text: 'Success Rate (%)', color: '#8b949e' }
-          },
           x: {
-            grid:  { color: '#30363d' },
+            stacked: true,
+            grid:  { color: '#21262d' },
             ticks: { color: '#8b949e' },
-            title: { display: true, text: 'Week', color: '#8b949e' }
-          }
+          },
+          yCount: {
+            type: 'linear',
+            position: 'left',
+            stacked: true,
+            grid:  { color: '#21262d' },
+            ticks: { color: '#8b949e', stepSize: 10 },
+            title: { display: true, text: 'Ticket Count', color: '#8b949e', font: { size: 11 } },
+            min: 0,
+          },
+          yRate: {
+            type: 'linear',
+            position: 'right',
+            grid: { drawOnChartArea: false },
+            ticks: { color: '#2f81f7', callback: v => v + '%' },
+            title: { display: true, text: 'Success Rate %', color: '#2f81f7', font: { size: 11 } },
+            min: 0, max: 100,
+          },
         },
         plugins: {
-          legend: { labels: { color: '#e6edf3' } },
+          legend: { display: false },
           tooltip: {
+            backgroundColor: '#1c2128',
+            borderColor: '#30363d',
+            borderWidth: 1,
+            titleColor: '#e6edf3',
+            bodyColor: '#8b949e',
+            padding: 12,
             callbacks: {
-              afterBody: (items) => {
+              label: item => {
+                if (item.dataset.label === 'Successful')       return `  ✓ Successful: ${item.raw}`;
+                if (item.dataset.label === 'Failed')           return `  ✗ Failed: ${item.raw}`;
+                if (item.dataset.label === 'Success Rate (%)') return `  ◎ Rate: ${item.raw}%`;
+                if (item.dataset.label?.startsWith('Target'))  return `  — Target: ${CHART_TARGET}%`;
+              },
+              afterBody: items => {
                 const d = weeklyData[items[0].dataIndex];
-                return [`Success: ${d.success} / ${d.total}`];
+                const lines = [`  Total: ${d.total} tickets`];
+                if (d.success_rate < CHART_TARGET) {
+                  lines.push(`  ⚠ Below target by ${(CHART_TARGET - d.success_rate).toFixed(1)}%`);
+                }
+                return lines;
               }
             }
           }

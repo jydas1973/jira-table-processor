@@ -19,10 +19,14 @@ A self-contained Flask web dashboard that lets an on-call engineer pick a date r
 JIRA JQL query, and instantly see:
 
 1. **Summary cards** — Total Triaged, Successful, Success Rate (%)
-2. **Weekly success rate line chart** — Chart.js, X = fixed 7-day bucket labels anchored to
-   `from_date` (e.g. `Apr 01–07`, `Apr 08–14`), Y = 0–100 %. Empty weeks are plotted at 0%.
-   When fewer than 2 buckets exist the chart is hidden entirely and a compact message is shown
-   in its place so the issue table starts immediately below.
+2. **Weekly success rate combo chart** — Chart.js mixed chart (stacked bars + line overlay).
+   Left Y-axis = ticket count; stacked bars show Success (green) and Failed (red) per 7-day
+   bucket anchored to `from_date` (e.g. `Apr 01–07`, `Apr 08–14`). Right Y-axis = success rate
+   % (blue line). A dashed amber target line is drawn at **90 %**; data points below 90 % turn
+   red on the line and the tooltip flags "⚠ Below target by X %". Empty weeks are plotted at
+   0 % so the line is always continuous. When fewer than 2 buckets exist the chart is hidden
+   entirely and a compact message is shown in its place so the issue table starts immediately
+   below.
 3. **Paginated issue table** — JIRA ID (clickable), Status badge, Date Created, Report link,
    Log Files; configurable rows-per-page (10 / 25 / 50 / 100, max 100)
 4. **Optional Report Links** — an "Include Report Links" checkbox fetches VoxioTriageX URLs and
@@ -958,47 +962,126 @@ sendReport()             — POST /api/send-email, show inline success/error in 
 - The `<details id="email-panel">` stays closed by default. Do **not** auto-open it after
   analysis — let the user open it intentionally.
 
-**Chart.js config** (line chart):
+**Chart.js config** (mixed stacked-bar + line, with 90 % target line):
+
+`const CHART_TARGET = 90;` — define as a module-level constant so it is easy to adjust.
+
 ```javascript
+const CHART_TARGET = 90;
+
 new Chart(ctx, {
-  type: 'line',
   data: {
     labels: weeklyData.map(w => w.label),
-    datasets: [{
-      label: 'Success Rate (%)',
-      data: weeklyData.map(w => w.success_rate),
-      borderColor: '#3fb950',
-      backgroundColor: 'rgba(63, 185, 80, 0.08)',
-      fill: true,
-      tension: 0.3,
-      pointRadius: 5,
-      pointHoverRadius: 8,
-      pointBackgroundColor: '#3fb950',
-    }]
+    datasets: [
+      {
+        type: 'bar',
+        label: 'Successful',
+        data: weeklyData.map(w => w.success),
+        backgroundColor: 'rgba(63,185,80,0.75)',
+        borderColor: '#3fb950',
+        borderWidth: 1,
+        borderRadius: { topLeft: 4, topRight: 4, bottomLeft: 0, bottomRight: 0 },
+        borderSkipped: false,
+        stack: 'count',
+        yAxisID: 'yCount',
+        order: 2,
+      },
+      {
+        type: 'bar',
+        label: 'Failed',
+        data: weeklyData.map(w => w.failed),
+        backgroundColor: 'rgba(248,81,73,0.75)',
+        borderColor: '#f85149',
+        borderWidth: 1,
+        borderRadius: { topLeft: 0, topRight: 0, bottomLeft: 0, bottomRight: 0 },
+        borderSkipped: false,
+        stack: 'count',
+        yAxisID: 'yCount',
+        order: 2,
+      },
+      {
+        type: 'line',
+        label: 'Success Rate (%)',
+        data: weeklyData.map(w => w.success_rate),
+        borderColor: '#2f81f7',
+        backgroundColor: 'rgba(47,129,247,0.08)',
+        borderWidth: 2.5,
+        fill: false,
+        tension: 0.35,
+        pointRadius: 5,
+        pointHoverRadius: 8,
+        pointBackgroundColor: weeklyData.map(w =>
+          w.success_rate < CHART_TARGET ? '#f85149' : '#2f81f7'
+        ),
+        pointBorderColor: '#0d1117',
+        pointBorderWidth: 2,
+        yAxisID: 'yRate',
+        order: 1,
+      },
+      {
+        type: 'line',
+        label: `Target (${CHART_TARGET}%)`,
+        data: Array(weeklyData.length).fill(CHART_TARGET),
+        borderColor: '#e3b341',
+        borderWidth: 1.5,
+        borderDash: [6, 4],
+        pointRadius: 0,
+        fill: false,
+        yAxisID: 'yRate',
+        order: 3,
+      },
+    ]
   },
   options: {
     responsive: true,
     maintainAspectRatio: false,
+    interaction: { mode: 'index', intersect: false },
     scales: {
-      y: {
-        min: 0, max: 100,
-        grid: { color: '#30363d' },
-        ticks: { color: '#8b949e', callback: v => v + '%' },
-        title: { display: true, text: 'Success Rate (%)', color: '#8b949e' }
-      },
       x: {
-        grid: { color: '#30363d' },
+        stacked: true,
+        grid:  { color: '#21262d' },
         ticks: { color: '#8b949e' },
-        title: { display: true, text: 'Week', color: '#8b949e' }
-      }
+      },
+      yCount: {
+        type: 'linear',
+        position: 'left',
+        stacked: true,
+        grid:  { color: '#21262d' },
+        ticks: { color: '#8b949e', stepSize: 10 },
+        title: { display: true, text: 'Ticket Count', color: '#8b949e' },
+        min: 0,
+      },
+      yRate: {
+        type: 'linear',
+        position: 'right',
+        grid: { drawOnChartArea: false },
+        ticks: { color: '#2f81f7', callback: v => v + '%' },
+        title: { display: true, text: 'Success Rate %', color: '#2f81f7' },
+        min: 0, max: 100,
+      },
     },
     plugins: {
-      legend: { labels: { color: '#e6edf3' } },
+      legend: { display: false },   // custom legend rendered in HTML
       tooltip: {
+        backgroundColor: '#1c2128',
+        borderColor: '#30363d',
+        borderWidth: 1,
+        titleColor: '#e6edf3',
+        bodyColor: '#8b949e',
         callbacks: {
-          afterBody: (items) => {
+          label: item => {
+            if (item.dataset.label === 'Successful')  return `  ✓ Successful: ${item.raw}`;
+            if (item.dataset.label === 'Failed')      return `  ✗ Failed: ${item.raw}`;
+            if (item.dataset.label === 'Success Rate (%)') return `  ◎ Rate: ${item.raw}%`;
+            if (item.dataset.label?.startsWith('Target'))  return `  — Target: ${CHART_TARGET}%`;
+          },
+          afterBody: items => {
             const d = weeklyData[items[0].dataIndex];
-            return [`Success: ${d.success} / ${d.total}`];
+            const lines = [`  Total: ${d.total} tickets`];
+            if (d.success_rate < CHART_TARGET) {
+              lines.push(`  ⚠ Below target by ${(CHART_TARGET - d.success_rate).toFixed(1)}%`);
+            }
+            return lines;
           }
         }
       }
@@ -1007,11 +1090,19 @@ new Chart(ctx, {
 });
 ```
 
+**Custom legend** — render in HTML above/beside the chart rather than relying on Chart.js
+built-in legend (set `legend: { display: false }`). Add three pill spans:
+- Green square + "Successful"
+- Red square + "Failed"
+- Blue line + "Success Rate %"
+- Amber dashed line + "Target (90 %)"
+
 - **GOTCHA**: Destroy the previous Chart.js instance before creating a new one to avoid
   "Canvas is already in use" errors. Keep a module-level `let chartInstance = null;` and call
   `chartInstance.destroy()` before re-creating.
 - **GOTCHA**: The chart canvas needs a fixed height container, otherwise Chart.js collapses
-  it to 0. Use `<div class="chart-wrap" style="position:relative; height:280px;">`.
+  it to 0. Use `<div class="chart-wrap" style="position:relative; height:320px;">` (increased
+  from 280 px to 320 px to accommodate the dual Y-axis labels).
 - **GOTCHA**: If `weeklyData` has fewer than 2 points, hide the canvas and show `#chart-no-data`.
 - **GOTCHA**: The JQL textarea is pre-populated via `{{ default_jql }}` Jinja2 — must be
   HTML-escaped in the template with `{{ default_jql | e }}`.
@@ -1337,8 +1428,11 @@ Open `http://localhost:5001` and run through all 20 manual test steps above.
 - [x] One date filled, other empty → error "Please fill both From and To dates..."
 - [x] No dates → JQL sent as-is (no date injection)
 - [x] Both dates filled → date conditions stripped from JQL, picker values appended
-- [x] Weekly chart: Y-axis = 0–100 %, X-axis = fixed 7-day bucket labels, tooltip shows count
-- [x] Weekly chart: empty weeks plotted at 0% so the line is always continuous
+- [x] Weekly chart: mixed stacked-bar (Success green / Failed red, left Y-axis count) + blue line overlay (right Y-axis rate %)
+- [x] Weekly chart: dashed amber target line at 90 %; data points below 90 % render red on the rate line
+- [x] Weekly chart: tooltip shows ✓ Successful, ✗ Failed, ◎ Rate, total ticket count, and "⚠ Below target by X %" when applicable
+- [x] Weekly chart: custom HTML legend (green/red/blue/amber pills); Chart.js built-in legend disabled
+- [x] Weekly chart: empty weeks plotted at 0 % so the line is always continuous
 - [x] Weekly chart: < 2 buckets → chart card hidden, compact message shown, table starts immediately
 - [x] Log Files column: first 2 shown, rest expandable under "+N more"
 - [x] JIRA ID links open in a new tab
@@ -1409,6 +1503,13 @@ Open `http://localhost:5001` and run through all 20 manual test steps above.
 - [x] TASK 24: Dashboard hides entire `#chart-card` (not just the canvas) when `< 2` buckets;
        compact message shown in its place so the table starts immediately below
 
+### Phase 6 — Chart Visual Upgrade (combo bar + line, 90 % target)
+- [ ] TASK 25: Replace simple line chart with mixed stacked-bar + line Chart.js config; add
+       `CHART_TARGET = 90` constant; left Y-axis = ticket count, right Y-axis = success rate %
+- [ ] TASK 26: Data points below 90 % rendered red on the rate line; target line dashed amber at 90 %
+- [ ] TASK 27: Tooltip updated — shows ✓/✗ counts, ◎ rate, total, and "⚠ Below target by X %" warning
+- [ ] TASK 28: Custom HTML legend replaces Chart.js built-in; chart-wrap height increased to 320 px
+
 ---
 
 ## NOTES
@@ -1454,10 +1555,25 @@ also the correct signal (no activity that week).
 
 ### Why hide the chart card entirely when < 2 buckets?
 
-The chart area has a fixed-height container (`height: 280px`). Hiding only the canvas but
+The chart area has a fixed-height container (`height: 320px`). Hiding only the canvas but
 keeping the card visible wastes significant vertical space and pushes the issue table far
 down the page. Hiding the entire card and replacing it with a single line of text is more
 respectful of screen real estate, especially on laptop screens.
+
+### Why a combo stacked-bar + line chart instead of a plain line chart?
+
+A plain success-rate line loses the volume dimension entirely: 100 % on 2 tickets looks
+identical to 100 % on 50 tickets. The stacked bars add the "how many" signal without
+requiring a second chart. The rate line overlaid on the right Y-axis preserves the trend
+read at a glance. This was the chosen design after evaluating four options in an ideation
+session (2026-05-04).
+
+### Why a 90 % target line?
+
+90 % was selected as the operational target by the on-call team. Weeks below this threshold
+are immediately visually flagged — data points on the rate line turn red and the tooltip
+surfaces "⚠ Below target by X %". The constant `CHART_TARGET = 90` in `dashboard.html`
+makes it trivial to adjust without hunting through chart config objects.
 
 ### Why fail-fast on missing token and busy port?
 
