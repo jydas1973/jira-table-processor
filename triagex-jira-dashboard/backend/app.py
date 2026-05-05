@@ -174,7 +174,7 @@ def _generate_email_html(status_df: pd.DataFrame) -> str:
                 safe_url = report_url if re.match(r'^https?://', report_url) else '#'
                 escaped_url = _html.escape(safe_url)
                 report_cell = (f'<td style="padding:12px 16px;border-bottom:1px solid #f4f5f7;">'
-                               f'<a href="{escaped_url}" target="_blank" '
+                               f'<a href="{escaped_url}" target="_blank" rel="noreferrer" '
                                f'style="color:#0052CC;text-decoration:none;font-weight:500;">Report</a></td>')
             else:
                 report_cell = '<td style="padding:12px 16px;border-bottom:1px solid #f4f5f7;color:#999;">-</td>'

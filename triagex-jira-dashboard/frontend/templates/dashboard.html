@@ -922,7 +922,7 @@
     const badgeCls  = issue.status === 'Success' ? 'badge-success' : 'badge-failed';
     const badgeTxt  = issue.status === 'Success' ? 'SUCCESS' : 'FAILED';
     const reportCell = issue.report_link
-      ? `<a href="${escHtml(safeUrl(issue.report_link))}" target="_blank">Report</a>`
+      ? `<a href="${escHtml(safeUrl(issue.report_link))}" target="_blank" rel="noreferrer">Report</a>`
       : '<span style="color:var(--text-muted)">—</span>';
     return `<tr>
       <td><a href="${escHtml(safeUrl(issue.link))}" target="_blank">${escHtml(issue.jira_id)}</a></td>
