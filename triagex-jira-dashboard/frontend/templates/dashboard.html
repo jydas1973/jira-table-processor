@@ -454,6 +454,8 @@
   <!-- Controls -->
   <section id="controls">
     <div class="shortcuts">
+      <button onclick="setRange(3)">Last 3d</button>
+      <button onclick="setRange(4)">Last 4d</button>
       <button onclick="setRange(7)">Last 7d</button>
       <button onclick="setRange(14)">Last 14d</button>
       <button onclick="setRange(30)">Last 30d</button>
@@ -531,7 +533,7 @@
       <summary>&#9993; Email This Report</summary>
       <div class="email-panel-body">
         <div class="email-from-hint">
-          From: <code>{{ email_from | e }}</code> via <code>{{ email_smtp | e }}</code>
+          From: <code>{{ email_from | e }}</code>
         </div>
         <span class="email-label">To:</span>
         <div id="recipient-list">
